@@ -3,6 +3,9 @@
 #
 # Repo Settings → Actions → General → Workflow permissions → Read and write
 # (needed so tauri-action can create a draft GitHub Release).
+#
+# Artifacts land on a draft GitHub Release (tag euml-v__VERSION__).
+# Open: https://github.com/Mingli29M/Northstar-Minecraft-Launcher/releases
 
 name: publish
 
@@ -22,12 +25,18 @@ jobs:
         include:
           - platform: macos-latest
             args: --target aarch64-apple-darwin
-          - platform: macos-latest
+            rust_target: aarch64-apple-darwin
+          # Native Intel runner — cross-compiling x86_64 from ARM breaks
+          # objc2-exception-helper build scripts (exit 126 / cannot execute).
+          - platform: macos-15-intel
             args: --target x86_64-apple-darwin
+            rust_target: x86_64-apple-darwin
           - platform: ubuntu-22.04
             args: ""
+            rust_target: ""
           - platform: windows-latest
             args: ""
+            rust_target: ""
 
     runs-on: ${{ matrix.platform }}
 
@@ -49,12 +58,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.rust_target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
+          # Keep aarch64 / x86_64 macOS caches separate (same job name otherwise).
+          key: ${{ matrix.platform }}-${{ matrix.rust_target || 'native' }}
 
       - name: Install frontend dependencies
         run: npm ci
@@ -69,6 +80,13 @@ jobs:
           releaseBody: |
             Proprietary build — All Rights Reserved.
             Download the installer for your platform from the assets below.
+
+            | Platform | File |
+            | --- | --- |
+            | Windows | `EUML_*_x64-setup.exe` / `EUML_*_x64_en-US.msi` |
+            | macOS Apple Silicon | `EUML_*_aarch64.dmg` |
+            | macOS Intel | `EUML_*_x64.dmg` |
+            | Linux | `EUML_*_amd64.AppImage` / `.deb` / `.rpm` |
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
