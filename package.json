@@ -1,0 +1,40 @@
+{
+  "name": "euml",
+  "private": true,
+  "version": "0.1.0",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "^0.2.0",
+    "@astryxdesign/theme-neutral": "^0.2.0",
+    "@stylexjs/stylex": "^0.19.0",
+    "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-dialog": "^2.2.1",
+    "@tauri-apps/plugin-fs": "^2.2.1",
+    "@tauri-apps/plugin-opener": "^2.2.6",
+    "@tauri-apps/plugin-shell": "^2.2.1",
+    "lucide-react": "^1.28.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.5.0"
+  },
+  "devDependencies": {
+    "@astryxdesign/cli": "^0.2.0",
+    "@tailwindcss/vite": "^4.1.4",
+    "@tauri-apps/cli": "^2.5.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "tailwindcss": "^4.1.4",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.2"
+  }
+}

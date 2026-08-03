@@ -1,0 +1,898 @@
+use crate::instances::get_instance;
+use crate::models::{IssueSeverity, LoaderKind, ReqIssue, ReqScanResult};
+use crate::mods_platform::{install_mod, search_mods};
+use crate::paths::minecraft_dir;
+use chrono::Utc;
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::{Cursor, Read};
+use std::path::Path;
+use zip::ZipArchive;
+
+#[derive(Debug, Clone)]
+struct ModMeta {
+    id: String,
+    version: String,
+    file: String,
+    /// Extra mod IDs this jar provides (Fabric API modules, `provides`, nested JiJ mods).
+    provides: Vec<String>,
+    depends: HashMap<String, String>,
+    recommends: HashMap<String, String>,
+    breaks: HashMap<String, String>,
+    conflicts: HashMap<String, String>,
+}
+
+impl ModMeta {
+    fn all_ids(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.id.as_str()).chain(self.provides.iter().map(|s| s.as_str()))
+    }
+}
+
+pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
+    let inst = get_instance(instance_id)?;
+    let mods_dir = minecraft_dir(instance_id)?.join("mods");
+    fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
+
+    let mut metas = Vec::new();
+    let mut issues = Vec::new();
+    for entry in fs::read_dir(&mods_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.ends_with(".jar") || name.ends_with(".disabled") {
+            continue;
+        }
+        match parse_jar(&entry.path(), &name) {
+            Ok(mut list) => {
+                // Ensure fabric-api filename registers the umbrella id even if metadata id differs.
+                if filename_looks_like_fabric_api(&name)
+                    && !list.iter().any(|m| {
+                        m.id == "fabric-api" || m.provides.iter().any(|p| p == "fabric-api")
+                    })
+                {
+                    if let Some(root) = list.iter_mut().find(|m| !m.file.contains("!/")) {
+                        if root.id != "fabric-api" {
+                            root.provides.push("fabric-api".into());
+                        }
+                    } else if let Some(fb) = filename_fallback_meta(&name) {
+                        list.push(fb);
+                    }
+                }
+                metas.extend(list);
+            }
+            Err(e) => {
+                if let Some(meta) = filename_fallback_meta(&name) {
+                    metas.push(meta);
+                }
+                issues.push(ReqIssue {
+                    severity: IssueSeverity::Warn,
+                    mod_id: jar_stem_id(&name),
+                    message: format!("Could not read metadata: {name} — {e}"),
+                    missing_mod_id: None,
+                    source_file: Some(name),
+                });
+            }
+        }
+    }
+
+    // id -> version (first wins; nested modules inherit parent version)
+    let mut present: HashMap<String, String> = HashMap::new();
+    // id -> providing root mod id (for nicer install hints)
+    let mut provided_by: HashMap<String, String> = HashMap::new();
+    for meta in &metas {
+        for id in meta.all_ids() {
+            let id = id.to_ascii_lowercase();
+            present
+                .entry(id.clone())
+                .or_insert_with(|| meta.version.clone());
+            if id != meta.id {
+                provided_by
+                    .entry(id)
+                    .or_insert_with(|| meta.id.clone());
+            }
+        }
+    }
+
+    let mut present_ids: HashSet<String> = present.keys().cloned().collect();
+    present_ids.insert("minecraft".into());
+    present_ids.insert("java".into());
+    match inst.loader {
+        LoaderKind::Fabric => {
+            present_ids.insert("fabricloader".into());
+            present_ids.insert("fabric-loader".into());
+            present_ids.insert("fabric".into());
+        }
+        LoaderKind::Quilt => {
+            present_ids.insert("quilt_loader".into());
+            present_ids.insert("quilt-loader".into());
+            present_ids.insert("quilted_fabric_api".into());
+        }
+        LoaderKind::Forge => {
+            present_ids.insert("forge".into());
+        }
+        LoaderKind::NeoForge => {
+            present_ids.insert("neoforge".into());
+        }
+        LoaderKind::Vanilla => {}
+    }
+
+    let has_fabric_api = present.contains_key("fabric-api");
+    let has_quilted_api =
+        present.contains_key("quilted_fabric_api") || present.contains_key("quilted-fabric-api");
+    if has_fabric_api {
+        present_ids.insert("fabric".into());
+        present_ids.insert("fabric-api".into());
+    }
+    if has_quilted_api {
+        present_ids.insert("quilted_fabric_api".into());
+        present_ids.insert("quilted-fabric-api".into());
+    }
+
+    for meta in &metas {
+        // Only enforce depends on the root entry of each physical jar once.
+        // Nested JiJ metas are recorded for provides only (depends already declared on root).
+        if meta.file.contains("!/") {
+            continue;
+        }
+
+        for (dep, range) in &meta.depends {
+            let dep = dep.to_ascii_lowercase();
+            if dep == "minecraft" {
+                if !version_satisfies(&inst.game_version, range) {
+                    issues.push(ReqIssue {
+                        severity: IssueSeverity::Error,
+                        mod_id: meta.id.clone(),
+                        message: format!(
+                            "{} requires Minecraft {} (instance is {})",
+                            meta.id, range, inst.game_version
+                        ),
+                        missing_mod_id: None,
+                        source_file: Some(meta.file.clone()),
+                    });
+                }
+                continue;
+            }
+            if is_loader_dep(&dep) {
+                continue;
+            }
+            if dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
+                if let Some(ver) = present.get(&dep) {
+                    if !version_satisfies(ver, range) {
+                        let via = provided_by
+                            .get(&dep)
+                            .map(|p| format!(" via `{p}`"))
+                            .unwrap_or_default();
+                        // Skip version mismatch when dep is only satisfied via umbrella.
+                        let umbrella_only = (has_fabric_api
+                            && is_fabric_api_module(&dep)
+                            && !present.contains_key(&dep))
+                            || (has_quilted_api
+                                && is_quilted_api_module(&dep)
+                                && !present.contains_key(&dep));
+                        if !umbrella_only {
+                            issues.push(ReqIssue {
+                                severity: IssueSeverity::Error,
+                                mod_id: meta.id.clone(),
+                                message: format!(
+                                    "{} needs `{dep}` {range}, found {ver}{via}",
+                                    meta.id
+                                ),
+                                missing_mod_id: suggest_install_id(
+                                    &dep,
+                                    &provided_by,
+                                    has_fabric_api,
+                                    has_quilted_api,
+                                ),
+                                source_file: Some(meta.file.clone()),
+                            });
+                        }
+                    }
+                }
+                continue;
+            }
+
+            let suggest =
+                suggest_install_id(&dep, &provided_by, has_fabric_api, has_quilted_api);
+            issues.push(ReqIssue {
+                severity: IssueSeverity::Error,
+                mod_id: meta.id.clone(),
+                message: format!(
+                    "{} depends on missing `{dep}` ({range}){}",
+                    meta.id,
+                    match &suggest {
+                        Some(s) if s != &dep => format!(" — install `{s}`"),
+                        _ => String::new(),
+                    }
+                ),
+                missing_mod_id: suggest,
+                source_file: Some(meta.file.clone()),
+            });
+        }
+
+        for (dep, range) in &meta.recommends {
+            let dep = dep.to_ascii_lowercase();
+            if is_loader_dep(&dep) || dep == "minecraft" {
+                continue;
+            }
+            if !dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
+                issues.push(ReqIssue {
+                    severity: IssueSeverity::Warn,
+                    mod_id: meta.id.clone(),
+                    message: format!("{} recommends `{dep}` ({range})", meta.id),
+                    missing_mod_id: suggest_install_id(
+                        &dep,
+                        &provided_by,
+                        has_fabric_api,
+                        has_quilted_api,
+                    ),
+                    source_file: Some(meta.file.clone()),
+                });
+            }
+        }
+
+        for (other, range) in &meta.breaks {
+            let other = other.to_ascii_lowercase();
+            if present_ids.contains(&other) {
+                if let Some(ver) = present.get(&other) {
+                    if version_satisfies(ver, range) || range == "*" {
+                        issues.push(ReqIssue {
+                            severity: IssueSeverity::Error,
+                            mod_id: meta.id.clone(),
+                            message: format!("{} breaks `{other}` ({range})", meta.id),
+                            missing_mod_id: None,
+                            source_file: Some(meta.file.clone()),
+                        });
+                    }
+                }
+            }
+        }
+
+        for (other, range) in &meta.conflicts {
+            let other = other.to_ascii_lowercase();
+            if present_ids.contains(&other) {
+                issues.push(ReqIssue {
+                    severity: IssueSeverity::Warn,
+                    mod_id: meta.id.clone(),
+                    message: format!("{} conflicts with `{other}` ({range})", meta.id),
+                    missing_mod_id: None,
+                    source_file: Some(meta.file.clone()),
+                });
+            }
+        }
+    }
+
+    Ok(ReqScanResult {
+        issues,
+        mod_count: metas.iter().filter(|m| !m.file.contains("!/")).count(),
+        scanned_at: Utc::now().to_rfc3339(),
+    })
+}
+
+fn jar_stem_id(file_name: &str) -> String {
+    Path::new(file_name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| file_name.to_string())
+        .to_ascii_lowercase()
+}
+
+fn filename_looks_like_fabric_api(file_name: &str) -> bool {
+    let stem = jar_stem_id(file_name);
+    let normalized = stem.replace('_', "-");
+    normalized == "fabric-api"
+        || normalized.starts_with("fabric-api-")
+        || normalized.starts_with("fabric-api+")
+}
+
+fn filename_fallback_meta(file_name: &str) -> Option<ModMeta> {
+    if !filename_looks_like_fabric_api(file_name) {
+        return None;
+    }
+    Some(ModMeta {
+        id: "fabric-api".into(),
+        version: "*".into(),
+        file: file_name.to_string(),
+        provides: Vec::new(),
+        depends: HashMap::new(),
+        recommends: HashMap::new(),
+        breaks: HashMap::new(),
+        conflicts: HashMap::new(),
+    })
+}
+
+fn is_fabric_api_module(dep: &str) -> bool {
+    dep.starts_with("fabric-") && dep != "fabric-api" && dep != "fabric-loader" && dep != "fabric"
+}
+
+fn is_quilted_api_module(dep: &str) -> bool {
+    (dep.starts_with("quilt_") || dep.starts_with("quilted_"))
+        && dep != "quilted_fabric_api"
+        && dep != "quilt_loader"
+}
+
+fn dep_satisfied(
+    dep: &str,
+    present_ids: &HashSet<String>,
+    has_fabric_api: bool,
+    has_quilted_api: bool,
+) -> bool {
+    if present_ids.contains(dep) {
+        return true;
+    }
+    if has_fabric_api && is_fabric_api_module(dep) {
+        return true;
+    }
+    if has_quilted_api && is_quilted_api_module(dep) {
+        return true;
+    }
+    false
+}
+
+fn suggest_install_id(
+    dep: &str,
+    provided_by: &HashMap<String, String>,
+    has_fabric_api: bool,
+    has_quilted_api: bool,
+) -> Option<String> {
+    if let Some(parent) = provided_by.get(dep) {
+        return Some(parent.clone());
+    }
+    // Only suggest installing fabric-api when the umbrella itself is missing.
+    if is_fabric_api_module(dep) {
+        return if has_fabric_api {
+            None
+        } else {
+            Some("fabric-api".into())
+        };
+    }
+    if is_quilted_api_module(dep) {
+        return if has_quilted_api {
+            None
+        } else {
+            Some("quilted-fabric-api".into())
+        };
+    }
+    Some(dep.to_string())
+}
+
+fn is_loader_dep(id: &str) -> bool {
+    matches!(
+        id,
+        "fabricloader"
+            | "fabric-loader"
+            | "fabric"
+            | "quilt_loader"
+            | "quilt-loader"
+            | "forge"
+            | "neoforge"
+            | "java"
+            | "minecraft"
+    )
+}
+
+/// Parse a mod jar into one or more metas (root + nested JiJ modules as provides sources).
+fn parse_jar(path: &Path, file_name: &str) -> Result<Vec<ModMeta>, String> {
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    parse_jar_bytes(&bytes, file_name, false)
+}
+
+fn parse_jar_bytes(bytes: &[u8], file_name: &str, nested: bool) -> Result<Vec<ModMeta>, String> {
+    let cursor = Cursor::new(bytes);
+    let mut archive = ZipArchive::new(cursor).map_err(|e| e.to_string())?;
+
+    // Prefer Fabric / Quilt metadata
+    let fabric_raw = {
+        let mut raw = None;
+        {
+            if let Ok(mut f) = archive.by_name("fabric.mod.json") {
+                let mut s = String::new();
+                if f.read_to_string(&mut s).is_ok() {
+                    raw = Some(s);
+                }
+            }
+        }
+        if raw.is_none() {
+            if let Ok(mut f) = archive.by_name("quilt.mod.json") {
+                let mut s = String::new();
+                if f.read_to_string(&mut s).is_ok() {
+                    raw = Some(s);
+                }
+            }
+        }
+        raw
+    };
+
+    if let Some(raw) = fabric_raw {
+        let mut meta = parse_fabric_json(&raw, file_name)?;
+        let mut out: Vec<ModMeta> = Vec::new();
+
+        let mut nested_paths = nested_jar_paths_from_fabric(&raw);
+        if !nested {
+            for i in 0..archive.len() {
+                if let Ok(e) = archive.by_index(i) {
+                    let n = e.name().to_string();
+                    if n.starts_with("META-INF/jars/") && n.ends_with(".jar") && !nested_paths.contains(&n)
+                    {
+                        nested_paths.push(n);
+                    }
+                }
+            }
+        }
+
+        for nested_path in nested_paths {
+            let buf = {
+                let Ok(mut nf) = archive.by_name(&nested_path) else {
+                    continue;
+                };
+                let mut buf = Vec::new();
+                if nf.read_to_end(&mut buf).is_err() {
+                    continue;
+                }
+                buf
+            };
+            let nested_name = format!("{file_name}!/{nested_path}");
+            if let Ok(nested_metas) = parse_jar_bytes(&buf, &nested_name, true) {
+                for nm in nested_metas {
+                    if !meta.provides.iter().any(|p| p == &nm.id) && nm.id != meta.id {
+                        meta.provides.push(nm.id.clone());
+                    }
+                    for p in &nm.provides {
+                        if !meta.provides.iter().any(|x| x == p) && p != &meta.id {
+                            meta.provides.push(p.clone());
+                        }
+                    }
+                    if !out.iter().any(|m| m.id == nm.id && m.file == nm.file) {
+                        out.push(nm);
+                    }
+                }
+            }
+        }
+
+        out.insert(0, meta);
+        return Ok(out);
+    }
+
+    for name in ["META-INF/neoforge.mods.toml", "META-INF/mods.toml"] {
+        if let Ok(mut f) = archive.by_name(name) {
+            let mut raw = String::new();
+            f.read_to_string(&mut raw).map_err(|e| e.to_string())?;
+            return Ok(vec![parse_mods_toml(&raw, file_name)?]);
+        }
+    }
+
+    Err("No known mod metadata".into())
+}
+
+fn nested_jar_paths_from_fabric(raw: &str) -> Vec<String> {
+    let Ok(v) = serde_json::from_str::<Value>(raw) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    if let Some(arr) = v.get("jars").and_then(|j| j.as_array()) {
+        for j in arr {
+            if let Some(file) = j.get("file").and_then(|f| f.as_str()) {
+                out.push(file.to_string());
+            }
+        }
+    }
+    out
+}
+
+fn parse_fabric_json(raw: &str, file_name: &str) -> Result<ModMeta, String> {
+    let v: Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+    let id = v["id"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_ascii_lowercase();
+    let version = v["version"].as_str().unwrap_or("*").to_string();
+    let mut provides = Vec::new();
+    if let Some(arr) = v.get("provides").and_then(|p| p.as_array()) {
+        for p in arr {
+            if let Some(s) = p.as_str() {
+                let s = s.to_ascii_lowercase();
+                if s != id {
+                    provides.push(s);
+                }
+            }
+        }
+    }
+    Ok(ModMeta {
+        id,
+        version,
+        file: file_name.to_string(),
+        provides,
+        depends: map_deps(v.get("depends")),
+        recommends: map_deps(v.get("recommends")),
+        breaks: map_deps(v.get("breaks")),
+        conflicts: map_deps(v.get("conflicts")),
+    })
+}
+
+fn map_deps(v: Option<&Value>) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    if let Some(obj) = v.and_then(|x| x.as_object()) {
+        for (k, val) in obj {
+            let range = match val {
+                Value::String(s) => s.clone(),
+                Value::Array(arr) => arr
+                    .iter()
+                    .filter_map(|x| x.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" || "),
+                _ => "*".into(),
+            };
+            map.insert(k.to_ascii_lowercase(), range);
+        }
+    }
+    map
+}
+
+fn parse_mods_toml(raw: &str, file_name: &str) -> Result<ModMeta, String> {
+    let value: toml::Value = toml::from_str(raw).map_err(|e| e.to_string())?;
+    let mut id = "unknown".to_string();
+    let mut version = "*".to_string();
+    if let Some(mods) = value.get("mods").and_then(|m| m.as_array()) {
+        if let Some(first) = mods.first() {
+            id = first
+                .get("modId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_ascii_lowercase();
+            version = first
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("*")
+                .to_string();
+        }
+    }
+
+    let mut depends = HashMap::new();
+    let mut breaks = HashMap::new();
+    let mut conflicts = HashMap::new();
+    let mut recommends = HashMap::new();
+    let mut provides = Vec::new();
+
+    // Collect additional modIds from [[mods]] as provides (multi-mod jars)
+    if let Some(mods) = value.get("mods").and_then(|m| m.as_array()) {
+        for (i, m) in mods.iter().enumerate() {
+            if i == 0 {
+                continue;
+            }
+            if let Some(mid) = m.get("modId").and_then(|v| v.as_str()) {
+                let mid = mid.to_ascii_lowercase();
+                if mid != id {
+                    provides.push(mid);
+                }
+            }
+        }
+    }
+
+    if let Some(deps_table) = value.get("dependencies").and_then(|d| d.as_table()) {
+        for (_mod, entries) in deps_table {
+            let list = match entries {
+                toml::Value::Array(a) => a.clone(),
+                other => vec![other.clone()],
+            };
+            for entry in list {
+                let dep_id = entry
+                    .get("modId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if dep_id.is_empty() {
+                    continue;
+                }
+                let range = entry
+                    .get("versionRange")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("*")
+                    .to_string();
+                let mandatory = entry.get("mandatory").and_then(|v| v.as_bool());
+                let dtype = entry.get("type").and_then(|v| v.as_str());
+                let kind = if let Some(m) = mandatory {
+                    if m {
+                        "required"
+                    } else {
+                        "optional"
+                    }
+                } else {
+                    dtype.unwrap_or("required")
+                };
+                match kind {
+                    "required" => {
+                        depends.insert(dep_id, range);
+                    }
+                    "optional" => {
+                        recommends.insert(dep_id, range);
+                    }
+                    "incompatible" => {
+                        breaks.insert(dep_id, range);
+                    }
+                    "discouraged" => {
+                        conflicts.insert(dep_id, range);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(ModMeta {
+        id,
+        version,
+        file: file_name.to_string(),
+        provides,
+        depends,
+        recommends,
+        breaks,
+        conflicts,
+    })
+}
+
+/// Loose matcher for Fabric / Maven / npm-style version predicates.
+fn version_satisfies(have: &str, range: &str) -> bool {
+    let range = range.trim();
+    if range.is_empty() || range == "*" {
+        return true;
+    }
+    if range.contains("||") {
+        return range.split("||").any(|r| version_satisfies(have, r.trim()));
+    }
+    if range.starts_with('[') || range.starts_with('(') {
+        return maven_interval_satisfies(have, range);
+    }
+    let parts = split_and_predicates(range);
+    if parts.len() > 1 {
+        return parts.iter().all(|p| version_satisfies(have, p));
+    }
+    compare_single_predicate(have, parts.first().map(|s| s.as_str()).unwrap_or(range))
+}
+
+fn split_and_predicates(range: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let bytes = range.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let at_op = (bytes[i] == b'>' || bytes[i] == b'<' || bytes[i] == b'=')
+            && (i == 0 || bytes[i - 1].is_ascii_whitespace());
+        if at_op && i > start {
+            let chunk = range[start..i].trim();
+            if !chunk.is_empty() {
+                out.push(chunk.to_string());
+            }
+            start = i;
+        }
+        i += 1;
+    }
+    let chunk = range[start..].trim();
+    if !chunk.is_empty() {
+        out.push(chunk.to_string());
+    }
+    if out.is_empty() {
+        out.push(range.to_string());
+    }
+    out
+}
+
+fn compare_single_predicate(have: &str, pred: &str) -> bool {
+    let pred = pred.trim();
+    if pred.is_empty() || pred == "*" {
+        return true;
+    }
+    if let Some(prefix) = pred
+        .strip_suffix(".x")
+        .or_else(|| pred.strip_suffix(".*"))
+        .or_else(|| pred.strip_suffix(".X"))
+    {
+        let prefix = prefix.trim_end_matches('.');
+        return have == prefix
+            || have.starts_with(&format!("{prefix}."))
+            || have.starts_with(prefix);
+    }
+
+    let (op, raw_ver) = if let Some(rest) = pred.strip_prefix(">=") {
+        (">=", rest)
+    } else if let Some(rest) = pred.strip_prefix("<=") {
+        ("<=", rest)
+    } else if let Some(rest) = pred.strip_prefix("=>") {
+        (">=", rest)
+    } else if let Some(rest) = pred.strip_prefix("=<") {
+        ("<=", rest)
+    } else if let Some(rest) = pred.strip_prefix('>') {
+        (">", rest)
+    } else if let Some(rest) = pred.strip_prefix('<') {
+        ("<", rest)
+    } else if let Some(rest) = pred.strip_prefix('=') {
+        ("=", rest)
+    } else if let Some(rest) = pred.strip_prefix('~') {
+        let ver = rest.trim();
+        return version_satisfies(have, &format!(">={ver}")) && soft_tilde_upper(have, ver);
+    } else if let Some(rest) = pred.strip_prefix('^') {
+        let ver = rest.trim();
+        return version_satisfies(have, &format!(">={ver}"));
+    } else {
+        ("=", pred)
+    };
+
+    let ver = raw_ver.trim().trim_end_matches('+').trim_end_matches('-');
+    let have_n = normalize_semver(have);
+    let ver_n = normalize_semver(ver);
+    if let (Ok(h), Ok(r)) = (semver::Version::parse(&have_n), semver::Version::parse(&ver_n)) {
+        return match op {
+            ">=" => h >= r,
+            ">" => h > r,
+            "<=" => h <= r,
+            "<" => h < r,
+            _ => h == r,
+        };
+    }
+    if let (Some(h), Some(r)) = (parse_mc_tuple(have), parse_mc_tuple(ver)) {
+        return match op {
+            ">=" => h >= r,
+            ">" => h > r,
+            "<=" => h <= r,
+            "<" => h < r,
+            _ => h == r,
+        };
+    }
+    match op {
+        "=" => have == ver || have.starts_with(ver),
+        _ => false,
+    }
+}
+
+fn soft_tilde_upper(have: &str, base: &str) -> bool {
+    let Some(mut t) = parse_mc_tuple(base) else {
+        return true;
+    };
+    if t.len() >= 2 {
+        t[1] += 1;
+        t.truncate(2);
+        t.push(0);
+    } else if let Some(first) = t.first_mut() {
+        *first += 1;
+        t.push(0);
+        t.push(0);
+    }
+    let upper = t
+        .iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(".");
+    version_satisfies(have, &format!("<{upper}"))
+}
+
+fn parse_mc_tuple(v: &str) -> Option<Vec<u64>> {
+    let core = v.split(|c| c == '-' || c == '+' || c == ' ').next().unwrap_or(v);
+    let mut nums = Vec::new();
+    for part in core.split('.') {
+        if part.is_empty() {
+            continue;
+        }
+        let n = part.parse::<u64>().ok()?;
+        nums.push(n);
+    }
+    if nums.is_empty() {
+        None
+    } else {
+        while nums.len() < 3 {
+            nums.push(0);
+        }
+        Some(nums)
+    }
+}
+
+fn maven_interval_satisfies(have: &str, range: &str) -> bool {
+    let range = range.trim();
+    if range == "*" || range == "[,)" || range == "(,)" {
+        return true;
+    }
+    let soft = range.trim_start_matches(['[', '(']).trim_end_matches([']', ')']);
+    let (lower, upper) = match soft.split_once(',') {
+        Some(p) => p,
+        None => return soft.trim() == have || soft.contains('*'),
+    };
+    let lower = lower.trim();
+    let upper = upper.trim();
+    let lower_inc = range.starts_with('[');
+    let upper_inc = range.ends_with(']');
+
+    if !lower.is_empty() {
+        let ok = if lower_inc {
+            version_satisfies(have, &format!(">={lower}"))
+        } else {
+            version_satisfies(have, &format!(">{lower}"))
+        };
+        if !ok {
+            return false;
+        }
+    }
+    if !upper.is_empty() {
+        let ok = if upper_inc {
+            version_satisfies(have, &format!("<={upper}"))
+        } else {
+            version_satisfies(have, &format!("<{upper}"))
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
+}
+
+fn normalize_semver(v: &str) -> String {
+    let core = v
+        .split(|c| c == '-' || c == '+')
+        .next()
+        .unwrap_or(v)
+        .trim();
+    let parts: Vec<&str> = core.split('.').filter(|p| !p.is_empty()).collect();
+    match parts.len() {
+        0 => "0.0.0".into(),
+        1 => format!("{}.0.0", parts[0]),
+        2 => format!("{}.{}.0", parts[0], parts[1]),
+        _ => format!("{}.{}.{}", parts[0], parts[1], parts[2]),
+    }
+}
+
+pub fn resolve_missing(instance_id: String, missing_mod_id: String) -> Result<ReqScanResult, String> {
+    let inst = get_instance(&instance_id)?;
+    let hits = search_mods(
+        missing_mod_id.clone(),
+        inst.game_version.clone(),
+        inst.loader.as_str().to_string(),
+        None,
+    )?;
+    let hit = hits
+        .into_iter()
+        .find(|h| {
+            h.slug == missing_mod_id
+                || h.project_id == missing_mod_id
+                || h.title.eq_ignore_ascii_case(&missing_mod_id)
+        })
+        .or_else(|| {
+            search_mods(
+                missing_mod_id.clone(),
+                inst.game_version.clone(),
+                inst.loader.as_str().to_string(),
+                None,
+            )
+            .ok()
+            .and_then(|mut v| v.drain(..).next())
+        })
+        .ok_or_else(|| format!("Could not find `{missing_mod_id}` on Modrinth for this instance"))?;
+
+    let version = hit
+        .versions
+        .first()
+        .ok_or("No compatible version on Modrinth")?;
+    install_mod(instance_id.clone(), hit.project_id, version.id.clone())?;
+    scan_instance(&instance_id)
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::version_satisfies;
+
+    #[test]
+    fn le_includes_equality() {
+        assert!(version_satisfies("1.21.11", "<=1.21.11"));
+        assert!(version_satisfies("1.21.10", "<=1.21.11"));
+        assert!(!version_satisfies("1.21.12", "<=1.21.11"));
+        assert!(!version_satisfies("1.21.11", "<1.21.11"));
+    }
+
+    #[test]
+    fn and_range() {
+        assert!(version_satisfies("1.21.11", ">=1.21 <=1.21.11"));
+        assert!(!version_satisfies("1.20.1", ">=1.21 <=1.21.11"));
+    }
+
+    #[test]
+    fn maven_interval() {
+        assert!(version_satisfies("1.21.11", "[1.21,1.21.11]"));
+        assert!(!version_satisfies("1.21.11", "[1.21,1.21.11)"));
+        assert!(version_satisfies("1.21.1", "[1.21,1.21.11]"));
+    }
+}

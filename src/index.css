@@ -1,0 +1,444 @@
+@layer reset, theme, base, astryx-base, astryx-theme, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+@import "@astryxdesign/theme-neutral/theme.css";
+@import "@astryxdesign/core/tailwind-theme.css";
+@import "tailwindcss/utilities.css" layer(utilities);
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-background-body, #f5f5f4);
+  color: var(--color-text-primary, #1c1917);
+}
+
+/* AppShell main must scroll when content is taller than the viewport */
+#astryx-app-shell-main {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+}
+
+.euml-keepalive {
+  min-height: 0;
+  display: block;
+}
+
+.euml-keepalive-pane.is-active {
+  overflow: visible;
+}
+
+.euml-page {
+  gap: 20px;
+  min-height: min-content;
+  padding-bottom: 48px;
+}
+
+.euml-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--color-background-secondary, #e7e5e4);
+}
+
+.euml-avatar--sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.euml-avatar--lg {
+  width: 48px;
+  height: 48px;
+}
+
+.euml-loader-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+}
+
+.euml-loader-badge[data-loader="fabric"] { background: #dbb69b; color: #1c1917; }
+.euml-loader-badge[data-loader="quilt"] { background: #c7b3eb; color: #1c1917; }
+.euml-loader-badge[data-loader="forge"] { background: #6a7a8a; }
+.euml-loader-badge[data-loader="neoforge"] { background: #e86339; }
+.euml-loader-badge[data-loader="vanilla"] { background: #5b8c5a; }
+
+.euml-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.euml-tag {
+  border: 1px solid var(--color-border, #d6d3d1);
+  background: transparent;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.euml-tag.is-active {
+  background: var(--color-background-selected, #e7e5e4);
+  border-color: var(--color-text-secondary, #a8a29e);
+}
+
+.euml-hit-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.euml-list-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border: none;
+  border-bottom: 1px solid var(--color-border, #e7e5e4);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.euml-list-row:hover {
+  background: var(--color-background-secondary, #f5f5f4);
+}
+
+.euml-list-row.is-selected {
+  background: var(--color-background-selected, #e7e5e4);
+}
+
+.euml-list-row__title {
+  font-weight: 600;
+  display: block;
+  line-height: 1.35;
+}
+
+.euml-list-row__meta {
+  color: var(--color-text-secondary, #78716c);
+  font-size: 12px;
+  display: block;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.euml-list-row:active {
+  transform: scale(0.995);
+}
+
+.euml-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.euml-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.euml-toolbar > * {
+  min-width: 0;
+}
+
+.euml-sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border, #e7e5e4);
+}
+
+.euml-sidebar-actions .euml-toolbar {
+  gap: 8px;
+}
+
+.euml-hint {
+  display: block;
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
+.euml-folder-label {
+  padding: 12px 18px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-secondary, #78716c);
+}
+
+.euml-keepalive-pane.is-active > .euml-page,
+.euml-fade-in {
+  animation: euml-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes euml-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .euml-list-row,
+  .euml-keepalive-pane.is-active > .euml-page,
+  .euml-fade-in {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.euml-download-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.euml-download-bar,
+.euml-console {
+  pointer-events: auto;
+  background: var(--color-background-elevated, #fff);
+  border-top: 1px solid var(--color-border, #e7e5e4);
+  padding: 10px 16px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.06);
+}
+
+.euml-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-background-secondary, #e7e5e4);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.euml-progress-fill {
+  height: 100%;
+  background: var(--color-accent, #1370f0);
+  transition: width 160ms ease;
+}
+
+.euml-console {
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.euml-console--window {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+  border-top: none;
+  box-shadow: none;
+  height: 100%;
+}
+
+.euml-console--window .euml-console-pre {
+  max-height: none;
+  flex: 1;
+}
+
+.euml-console-window {
+  height: 100vh;
+  background: var(--color-background, #fafaf9);
+  color: var(--color-foreground, #1c1917);
+}
+
+.euml-console-window__head {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border, #e7e5e4);
+}
+
+.euml-console-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.euml-console-chip {
+  border: 1px solid var(--color-border, #e7e5e4);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.euml-console-chip.is-active {
+  border-color: var(--color-accent, #1370f0);
+  color: var(--color-accent, #1370f0);
+  background: color-mix(in srgb, var(--color-accent, #1370f0) 12%, transparent);
+}
+
+.euml-console-pre {
+  margin: 0;
+  flex: 1;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  max-height: 180px;
+}
+
+.euml-console-line {
+  margin: 0;
+}
+
+.euml-console-ts {
+  opacity: 0.55;
+}
+
+.euml-console-line--error {
+  color: #b91c1c;
+}
+
+.euml-console-line--warn {
+  color: #b45309;
+}
+
+.euml-console-line--progress {
+  color: #1d4ed8;
+}
+
+.euml-fav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--color-foreground-secondary, #78716c);
+  border-radius: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.euml-fav-btn:hover {
+  color: #ca8a04;
+  background: color-mix(in srgb, #ca8a04 12%, transparent);
+}
+
+.euml-fav-btn.is-on {
+  color: #ca8a04;
+}
+
+.euml-list-row .euml-fav-btn {
+  margin-left: 4px;
+}
+
+.euml-config-editor {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border, #d6d3d1);
+  border-radius: 8px;
+  background: var(--color-background-secondary, #f5f5f4);
+  color: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.euml-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.euml-settings-form label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.euml-config-section {
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--color-border, #e7e5e4);
+}
+
+.euml-config-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.euml-config-section__title {
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+}
+
+.euml-launch-hero {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accent, #1370f0) 8%, transparent), transparent 55%),
+    var(--color-background-elevated, #fff);
+}
+
+.euml-start-btn {
+  width: 100%;
+  height: 56px;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(180deg, #3d9a45 0%, #2f7a36 100%);
+  box-shadow: 0 2px 0 #245c2a;
+  transition: filter 120ms ease, transform 80ms ease;
+}
+
+.euml-start-btn:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.euml-start-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 #245c2a;
+}
+
+.euml-start-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
