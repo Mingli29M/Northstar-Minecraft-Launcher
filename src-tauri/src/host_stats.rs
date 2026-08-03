@@ -248,7 +248,7 @@ fn fill_resource_metrics(stats: &mut HostLiveStats, pid: u32) {
     }
     #[cfg(not(windows))]
     {
-        let _ = (stats, pid);
+        let _ = pid;
         if stats.note.is_empty() {
             stats.note = "CPU/RAM/WLAN meters are Windows-only in this build".into();
         }
