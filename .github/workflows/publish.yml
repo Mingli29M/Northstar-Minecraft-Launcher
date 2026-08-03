@@ -87,6 +87,15 @@ jobs:
             | macOS Apple Silicon | `EUML_*_aarch64.dmg` |
             | macOS Intel | `EUML_*_x64.dmg` |
             | Linux | `EUML_*_amd64.AppImage` / `.deb` / `.rpm` |
+
+            ### macOS note
+            Builds are ad-hoc signed (no Apple Developer ID / notarization yet).
+            If macOS says the app is **damaged** and won't open:
+            1. Open Terminal
+            2. Run: `xattr -cr /Applications/EUML.app` (or the path you installed to)
+            3. Right-click the app → **Open**, then confirm
+
+            Or: System Settings → Privacy & Security → allow EUML.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
