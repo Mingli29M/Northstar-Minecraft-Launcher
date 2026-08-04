@@ -50,7 +50,7 @@ One desktop app for launch + Modrinth/content + dedicated Host, with ReqGuard pr
 - App source: `src/`, `src-tauri/`.
 - Marketing site: `website/`.
 - License: `LICENSE`.
-- Changelog: `CHANGELOG.md`, `src/lib/launcherChangelog.ts`.
+- Changelogs (split): launcher `CHANGELOG.md` + `src/lib/launcherChangelog.ts`; website `website/CHANGELOG.md` + `website/src/i18n/changelog.ts`.
 - Benchmarks: `BENCHMARKS.md`.
 - Public repo / releases: `Mingli29M/Northstar-Minecraft-Launcher`.
 

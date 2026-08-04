@@ -1,6 +1,6 @@
 /** Embedded launcher changelog shown in Settings → About. */
 
-export const APP_VERSION = "1.1.0";
+export const APP_VERSION = "1.1.1";
 
 export type ChangelogSection = {
   title: string;
@@ -17,10 +17,31 @@ export type ChangelogEntry = {
 
 export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.1.1",
+    date: "2026-08-04",
+    summary:
+      "New geometric Northstar app icons, and launcher changelog split from the website changelog.",
+    sections: [
+      {
+        title: "Branding",
+        items: [
+          "Replaced Minecraft-style nether-star window/installer icons with the new geometric Northstar mark",
+          "Overlay shard mark available for taller “star with overlay” brand visuals",
+        ],
+      },
+      {
+        title: "Docs",
+        items: [
+          "Launcher and website changelogs are now separate (CHANGELOG.md vs website/CHANGELOG.md)",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.1.0",
     date: "2026-08-04",
     summary:
-      "Northstar display rebrand, appearance settings, Host/network polish, and a GitHub Pages marketing site.",
+      "Northstar display rebrand, appearance settings, and Host/network polish.",
     sections: [
       {
         title: "Branding",
@@ -41,12 +62,6 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
         items: [
           "UPnP → NAT-PMP → PCP port-map cascade with clearer join addresses",
           "Orphan Java reattach, port-in-use detection, and Host KeepAlive route fix",
-        ],
-      },
-      {
-        title: "Website",
-        items: [
-          "Astryx landing page under website/ deployed via GitHub Pages",
         ],
       },
     ],

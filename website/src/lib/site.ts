@@ -3,7 +3,10 @@ export const REPO = "https://github.com/Mingli29M/Northstar-Minecraft-Launcher";
 export const RELEASES = `${REPO}/releases`;
 export const RELEASES_LATEST = `${REPO}/releases/latest`;
 export const LICENSE_RAW = `${REPO}/blob/main/LICENSE`;
-export const CHANGELOG_FILE = `${REPO}/blob/main/CHANGELOG.md`;
+/** Website changelog (marketing site). Launcher notes: LAUNCHER_CHANGELOG_FILE. */
+export const CHANGELOG_FILE = `${REPO}/blob/main/website/CHANGELOG.md`;
+/** Desktop launcher changelog at repo root. */
+export const LAUNCHER_CHANGELOG_FILE = `${REPO}/blob/main/CHANGELOG.md`;
 export const SITE_URL = "https://mingli29m.github.io/Northstar-Minecraft-Launcher/";
 
 export const LICENSE_TEXT = `Copyright (c) 2026 Northstar contributors. All rights reserved.

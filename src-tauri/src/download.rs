@@ -155,7 +155,7 @@ fn shared_client() -> Result<&'static reqwest::blocking::Client, String> {
             .timeout(std::time::Duration::from_secs(120))
             .connect_timeout(std::time::Duration::from_secs(20))
             .pool_max_idle_per_host(8)
-            .user_agent("Northstar/1.1.0")
+            .user_agent("Northstar/1.1.1")
             .build()
             .map_err(|e| e.to_string())
     }) {

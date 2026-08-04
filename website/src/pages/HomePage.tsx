@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Boxes,
@@ -142,7 +142,15 @@ export function HomePage() {
       <TopNav />
 
       <section className="ns-hero" aria-labelledby="hero-title">
-        <div className="ns-hero-bg" aria-hidden="true" />
+        <div
+          className="ns-hero-bg"
+          aria-hidden="true"
+          style={
+            {
+              "--ns-hero-image": `url(${import.meta.env.BASE_URL}northstar-hero.png)`,
+            } as CSSProperties
+          }
+        />
         <div className="ns-hero-inner">
           <p className="ns-hero-pill">{t("heroPill")}</p>
           <h1 id="hero-title" className="ns-brand">
@@ -167,20 +175,20 @@ export function HomePage() {
             <li>Linux</li>
           </ul>
           <div className="ns-hero-star-trail" aria-hidden="true">
-            <div className="ns-hero-star-stack ns-star-tint">
+            <div className="ns-hero-star-stack">
               <img
                 className="ns-hero-star-ghost"
-                src={`${import.meta.env.BASE_URL}nether-star-16.png`}
+                src={`${import.meta.env.BASE_URL}northstar-overlay.png`}
                 alt=""
-                width={16}
-                height={16}
+                width={512}
+                height={768}
               />
               <img
                 className="ns-hero-star"
-                src={`${import.meta.env.BASE_URL}nether-star-16.png`}
+                src={`${import.meta.env.BASE_URL}northstar-overlay.png`}
                 alt=""
-                width={16}
-                height={16}
+                width={512}
+                height={768}
               />
             </div>
           </div>

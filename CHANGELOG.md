@@ -1,8 +1,23 @@
-# Northstar Changelog
+# Northstar Launcher Changelog
+
+Launcher release notes for the desktop app (Tauri). Website marketing changes live in [`website/CHANGELOG.md`](website/CHANGELOG.md).
+
+> **Split (1.1.1):** Launcher and website changelogs are maintained separately. This file covers the desktop launcher only.
+
+## 1.1.1 — 2026-08-04
+
+Branding icons refreshed; changelog split from the marketing site.
+
+### Branding
+- Replaced Minecraft-style nether-star app icons with the new geometric Northstar mark (window / installer icons)
+- Overlay shard mark used for brand visuals that need the taller “star with overlay” treatment
+
+### Docs
+- Launcher and website changelogs are now separate (`CHANGELOG.md` vs `website/CHANGELOG.md`)
 
 ## 1.1.0 — 2026-08-04
 
-Northstar display rebrand, appearance settings, Host/network polish, and a GitHub Pages marketing site.
+Northstar display rebrand, appearance settings, and Host/network polish.
 
 ### Branding
 - User-facing product name is **Northstar** (data folder remains `%APPDATA%\euml` for install stability)
@@ -15,9 +30,6 @@ Northstar display rebrand, appearance settings, Host/network polish, and a GitHu
 ### Host & network
 - UPnP → NAT-PMP → PCP port-map cascade with clearer join addresses
 - Orphan Java reattach, port-in-use detection, and Host KeepAlive route fix
-
-### Website
-- Astryx landing page under `website/` deployed via GitHub Pages
 
 ## 1.0.0 — Northstar — 2026-08-04
 
