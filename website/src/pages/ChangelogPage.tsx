@@ -19,7 +19,7 @@ export function ChangelogPage() {
           <h1>{t("changelogTitle")}</h1>
           <p className="ns-page-lead">
             {t("changelogLeadBefore")} {APP_VERSION}
-            {t("changelogLeadAfter")} <a href={CHANGELOG_FILE}>CHANGELOG.md</a>.
+            {t("changelogLeadAfter")} <a href={CHANGELOG_FILE}>website/CHANGELOG.md</a>.
           </p>
         </header>
 

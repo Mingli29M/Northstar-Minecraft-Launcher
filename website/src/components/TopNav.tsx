@@ -6,9 +6,9 @@ const BASE = import.meta.env.BASE_URL.replace(/\/?$/, "/");
 
 function BrandMark({ className }: { className?: string }) {
   return (
-    <span className={`ns-star-tint ${className ?? ""}`.trim()}>
+    <span className={className}>
       <img
-        src={`${import.meta.env.BASE_URL}nether-star-16.png`}
+        src={`${import.meta.env.BASE_URL}northstar-mark.png`}
         alt=""
         width={26}
         height={26}

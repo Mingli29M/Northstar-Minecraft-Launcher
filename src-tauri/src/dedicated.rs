@@ -491,7 +491,7 @@ fn write_json_list<T: Serialize>(path: &Path, list: &[T]) -> Result<(), String> 
 fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
-        .user_agent("Northstar/1.1.0")
+        .user_agent("Northstar/1.1.1")
         .build()
         .map_err(|e| e.to_string())
 }
