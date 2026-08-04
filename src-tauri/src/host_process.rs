@@ -110,7 +110,7 @@ fn describe_port_holder(pid: u32) -> String {
                 if cmd.to_lowercase().contains("euml\\dedicated")
                     || cmd.to_lowercase().contains("server.jar")
                 {
-                    return format!("another Minecraft/EUML server process (pid {pid})");
+                    return format!("another Minecraft/Northstar server process (pid {pid})");
                 }
                 let short = if cmd.len() > 120 {
                     format!("{}…", &cmd[..120])
@@ -544,7 +544,7 @@ pub fn start_dedicated(app: AppHandle, id: String) -> Result<DedicatedStatus, St
         } => {
             let _ = fs::write(
                 jvm_args,
-                format!("# Managed by EUML\n-Xmx{xmx}M\n-Xms{xms}M\n"),
+                format!("# Managed by Northstar\n-Xmx{xmx}M\n-Xms{xms}M\n"),
             );
             cmd.arg(format!(
                 "@{}",

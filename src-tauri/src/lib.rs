@@ -572,7 +572,7 @@ fn open_console_window(app: tauri::AppHandle) -> Result<(), String> {
         "console",
         WebviewUrl::App("index.html?eumlWindow=console".into()),
     )
-    .title("EUML Console")
+    .title("Northstar Console")
     .inner_size(860.0, 520.0)
     .min_inner_size(480.0, 280.0)
     .resizable(true)
@@ -913,5 +913,5 @@ pub fn run() {
             write_instance_text_file,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running EUML");
+        .expect("error while running Northstar");
 }

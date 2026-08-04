@@ -1,8 +1,27 @@
-# EUML Changelog
+# Northstar Changelog
+
+## 1.1.0 — 2026-08-04
+
+Northstar display rebrand, appearance settings, Host/network polish, and a GitHub Pages marketing site.
+
+### Branding
+- User-facing product name is **Northstar** (data folder remains `%APPDATA%\euml` for install stability)
+- Window title, User-Agent, console titles, and Host MOTD/strings updated
+
+### Appearance
+- Settings → Appearance: accent color, background color/image, font family, UI scale
+- Live CSS preview; persisted in `settings.json`
+
+### Host & network
+- UPnP → NAT-PMP → PCP port-map cascade with clearer join addresses
+- Orphan Java reattach, port-in-use detection, and Host KeepAlive route fix
+
+### Website
+- Astryx landing page under `website/` deployed via GitHub Pages
 
 ## 1.0.0 — Northstar — 2026-08-04
 
-First public release of EUML (Enhanced Ultimate Minecraft Launcher).
+First public release of Northstar.
 
 ### Launch experience
 - PCL/HMCL-style home screen with large Start button and quick version picker

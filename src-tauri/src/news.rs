@@ -85,7 +85,7 @@ fn parse_news_entries(data: &Value) -> Vec<(MinecraftNewsItem, bool)> {
 pub fn fetch_minecraft_news() -> Result<Vec<MinecraftNewsItem>, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(45))
-        .user_agent("EUML/0.1.0")
+        .user_agent("Northstar/1.1.0")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -141,7 +141,7 @@ pub fn fetch_minecraft_news() -> Result<Vec<MinecraftNewsItem>, String> {
 pub fn fetch_minecraft_patch_notes() -> Result<Vec<MinecraftPatchNote>, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(90))
-        .user_agent("EUML/0.1.0")
+        .user_agent("Northstar/1.1.0")
         .build()
         .map_err(|e| e.to_string())?;
 

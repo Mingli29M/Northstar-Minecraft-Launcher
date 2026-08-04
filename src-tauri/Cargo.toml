@@ -1,8 +1,8 @@
 [package]
 name = "euml"
-version = "1.0.0"
-description = "EUML Minecraft Launcher"
-authors = ["EUML"]
+version = "1.1.0"
+description = "Northstar Minecraft Launcher"
+authors = ["Northstar"]
 edition = "2021"
 license-file = "../LICENSE"
 

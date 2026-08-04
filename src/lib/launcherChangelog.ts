@@ -1,6 +1,6 @@
 /** Embedded launcher changelog shown in Settings → About. */
 
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.1.0";
 
 export type ChangelogSection = {
   title: string;
@@ -17,11 +17,46 @@ export type ChangelogEntry = {
 
 export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.1.0",
+    date: "2026-08-04",
+    summary:
+      "Northstar display rebrand, appearance settings, Host/network polish, and a GitHub Pages marketing site.",
+    sections: [
+      {
+        title: "Branding",
+        items: [
+          "User-facing product name is Northstar (data folder remains %APPDATA%\\euml for install stability)",
+          "Window title, User-Agent, console titles, and Host MOTD/strings updated",
+        ],
+      },
+      {
+        title: "Appearance",
+        items: [
+          "Settings → Appearance: accent color, background color/image, font family, UI scale",
+          "Live CSS preview; persisted in settings.json",
+        ],
+      },
+      {
+        title: "Host & network",
+        items: [
+          "UPnP → NAT-PMP → PCP port-map cascade with clearer join addresses",
+          "Orphan Java reattach, port-in-use detection, and Host KeepAlive route fix",
+        ],
+      },
+      {
+        title: "Website",
+        items: [
+          "Astryx landing page under website/ deployed via GitHub Pages",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.0.0",
     date: "2026-08-04",
     codename: "Northstar",
     summary:
-      "First public release of EUML — a full PCL/HMCL-inspired desktop launcher for Minecraft Java Edition with dedicated hosting, Modrinth browsing, and multi-account support.",
+      "First public release of Northstar — a full PCL/HMCL-inspired desktop launcher for Minecraft Java Edition with dedicated hosting, Modrinth browsing, and multi-account support.",
     sections: [
       {
         title: "Launch experience",
@@ -73,7 +108,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
         items: [
           "Native installers for Windows (NSIS + MSI), macOS (Apple Silicon + Intel DMG), and Linux (AppImage, deb, rpm)",
           "macOS builds ad-hoc signed by default; Developer ID + notarization when Apple CI secrets are configured",
-          "GitHub Actions publish workflow attaches artifacts to tagged releases (euml-v__VERSION__)",
+          "GitHub Actions publish workflow attaches artifacts to tagged releases",
         ],
       },
       {

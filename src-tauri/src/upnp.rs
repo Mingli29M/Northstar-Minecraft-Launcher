@@ -450,7 +450,7 @@ fn map_upnp(port: u16) -> Result<Option<String>, String> {
             port,
             local_addr,
             0,
-            "EUML Dedicated Server",
+            "Northstar Dedicated Server",
         )
         .map_err(|e| format!("UPnP AddPortMapping failed: {e}"))?;
     let external = gateway.get_external_ip().ok().map(|ip| ip.to_string());
@@ -724,7 +724,7 @@ fn unmap_pcp(session: &ActiveMapping) -> Result<(), String> {
 pub fn try_add_firewall_rule(port: u16) -> Result<(), String> {
     #[cfg(windows)]
     {
-        let name = format!("EUML Dedicated TCP {port}");
+        let name = format!("Northstar Dedicated TCP {port}");
         let status = Command::new("netsh")
             .args([
                 "advfirewall",
@@ -743,7 +743,7 @@ pub fn try_add_firewall_rule(port: u16) -> Result<(), String> {
             Ok(())
         } else {
             Err(format!(
-                "netsh failed (exit {}). Run EUML as admin or add the rule manually.",
+                "netsh failed (exit {}). Run Northstar as admin or add the rule manually.",
                 status.code().unwrap_or(-1)
             ))
         }

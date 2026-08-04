@@ -52,6 +52,14 @@ export interface LauncherSettings {
   download_source?: string | null;
   /** Override path for Host dedicated servers root */
   dedicated_path?: string | null;
+  /** Solid page background (CSS) */
+  background_color?: string | null;
+  /** Optional local path or URL for body background */
+  background_image?: string | null;
+  /** `system` | `noto` | `source` | `plex` */
+  font_family?: string | null;
+  /** 0.9 | 1 | 1.1 | 1.25 */
+  ui_scale?: number | null;
 }
 
 export type DedicatedLoader =

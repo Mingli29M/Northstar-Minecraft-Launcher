@@ -167,7 +167,7 @@ export function DownloadStatusProvider({ children }: { children: ReactNode }) {
           : "index.html?eumlWindow=console";
         const win = new WebviewWindow("console", {
           url,
-          title: "EUML Console",
+          title: "Northstar Console",
           width: 860,
           height: 520,
           minWidth: 480,

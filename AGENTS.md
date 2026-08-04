@@ -2,7 +2,7 @@
 
 ## Cursor Cloud specific instructions
 
-EUML (a.k.a. Northstar) is a **Tauri 2 desktop Minecraft launcher**. One product, two layers:
+Northstar (formerly EUML) is a **Tauri 2 desktop Minecraft launcher**. One product, two layers:
 
 - Frontend: React 19 + TypeScript + Vite + Tailwind v4, using the `@astryxdesign/*` design system. Dev server runs on `http://localhost:1420` (`npm run dev`).
 - Backend: Rust (`src-tauri/`, lib crate `euml_lib`). All native/launcher logic (accounts, downloads, launch, hosting, ReqGuard, UPnP) lives here and is exposed to the UI via Tauri commands.

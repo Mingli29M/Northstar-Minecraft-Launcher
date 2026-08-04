@@ -263,6 +263,18 @@ pub struct LauncherSettings {
     /// Override path for dedicated Host servers root
     #[serde(default)]
     pub dedicated_path: Option<String>,
+    /// Solid page background color (CSS)
+    #[serde(default)]
+    pub background_color: Option<String>,
+    /// Optional local path or URL for body background image
+    #[serde(default)]
+    pub background_image: Option<String>,
+    /// Curated font family key: system | noto | source | plex
+    #[serde(default)]
+    pub font_family: Option<String>,
+    /// UI scale factor: 0.9 / 1 / 1.1 / 1.25
+    #[serde(default)]
+    pub ui_scale: Option<f64>,
 }
 
 impl Default for LauncherSettings {
@@ -277,6 +289,10 @@ impl Default for LauncherSettings {
             download_threads: Some(16),
             download_source: Some("official".into()),
             dedicated_path: None,
+            background_color: None,
+            background_image: None,
+            font_family: Some("system".into()),
+            ui_scale: Some(1.0),
         }
     }
 }

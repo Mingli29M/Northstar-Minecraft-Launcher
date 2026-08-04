@@ -5,6 +5,7 @@ import { LinkProvider } from "@astryxdesign/core/Link";
 import { LayerProvider } from "@astryxdesign/core/Layer";
 import { neutralTheme } from "@astryxdesign/theme-neutral";
 import { I18nProvider } from "./i18n";
+import { AppearanceProvider } from "./lib/AppearanceProvider";
 import { DownloadStatusProvider } from "./lib/downloadStatus";
 import { FavoritesProvider } from "./lib/favorites";
 
@@ -34,9 +35,11 @@ export function Providers({ children }: { children: ReactNode }) {
       <LinkProvider component={RRLink}>
         <LayerProvider>
           <I18nProvider>
-            <DownloadStatusProvider>
-              <FavoritesProvider>{children}</FavoritesProvider>
-            </DownloadStatusProvider>
+            <AppearanceProvider>
+              <DownloadStatusProvider>
+                <FavoritesProvider>{children}</FavoritesProvider>
+              </DownloadStatusProvider>
+            </AppearanceProvider>
           </I18nProvider>
         </LayerProvider>
       </LinkProvider>

@@ -8,9 +8,19 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { VStack } from "@astryxdesign/core/VStack";
 import { api } from "../lib/api";
+import { notifyAppearance } from "../lib/appearance";
 import { APP_VERSION, LAUNCHER_CHANGELOG } from "../lib/launcherChangelog";
 import { useI18n } from "../i18n";
 import type { LauncherSettings, Locale } from "../lib/types";
+
+function patchSettings(
+  current: LauncherSettings,
+  patch: Partial<LauncherSettings>,
+): LauncherSettings {
+  const next = { ...current, ...patch };
+  notifyAppearance(next);
+  return next;
+}
 
 export function SettingsPage() {
   const { t, locale, setLocale } = useI18n();
@@ -19,7 +29,10 @@ export function SettingsPage() {
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getSettings().then(setSettings);
+    api.getSettings().then((s) => {
+      setSettings(s);
+      notifyAppearance(s);
+    });
     api.detectJavaInstalls().then(setJavas).catch(() => setJavas([]));
   }, []);
 
@@ -29,6 +42,7 @@ export function SettingsPage() {
     const threads = Math.min(64, Math.max(4, settings.download_threads || 16));
     const saved = await api.saveSettings({ ...settings, download_threads: threads, locale });
     setSettings(saved);
+    notifyAppearance(saved);
     setMsg(t("saved"));
   }
 
@@ -91,6 +105,115 @@ export function SettingsPage() {
               type="password"
               value={settings.curseforge_api_key ?? ""}
               onChange={(v) => setSettings({ ...settings, curseforge_api_key: v || null })}
+            />
+            <Button type="submit" label={t("save")} variant="primary" />
+          </VStack>
+        </form>
+      </Card>
+
+      <Card padding={4}>
+        <form onSubmit={onSave}>
+          <VStack gap={3}>
+            <Text weight="semibold" type="display-3" style={{ fontSize: 20 }}>
+              {t("appearanceTitle")}
+            </Text>
+            <Text color="secondary" type="supporting">
+              {t("appearanceHint")}
+            </Text>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 120 }}>
+                <Text type="supporting" weight="semibold">
+                  {t("accentColor")}
+                </Text>
+                <input
+                  type="color"
+                  value={settings.accent ?? "#1370f0"}
+                  onChange={(e) =>
+                    setSettings(patchSettings(settings, { accent: e.target.value }))
+                  }
+                  style={{ width: 48, height: 36, border: "none", padding: 0, cursor: "pointer" }}
+                />
+              </label>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <TextInput
+                  label={t("accentHex")}
+                  value={settings.accent ?? "#1370f0"}
+                  onChange={(v) =>
+                    setSettings(patchSettings(settings, { accent: v || "#1370f0" }))
+                  }
+                />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 120 }}>
+                <Text type="supporting" weight="semibold">
+                  {t("backgroundColor")}
+                </Text>
+                <input
+                  type="color"
+                  value={settings.background_color ?? "#f5f5f4"}
+                  onChange={(e) =>
+                    setSettings(patchSettings(settings, { background_color: e.target.value }))
+                  }
+                  style={{ width: 48, height: 36, border: "none", padding: 0, cursor: "pointer" }}
+                />
+              </label>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <TextInput
+                  label={t("backgroundColorHex")}
+                  value={settings.background_color ?? ""}
+                  onChange={(v) =>
+                    setSettings(patchSettings(settings, { background_color: v || null }))
+                  }
+                />
+              </div>
+            </div>
+            <TextInput
+              label={t("backgroundImage")}
+              description={t("backgroundImageHint")}
+              value={settings.background_image ?? ""}
+              onChange={(v) =>
+                setSettings(patchSettings(settings, { background_image: v || null }))
+              }
+            />
+            {(settings.background_image || settings.background_color) && (
+              <Button
+                type="button"
+                label={t("clearBackground")}
+                variant="secondary"
+                onClick={() =>
+                  setSettings(
+                    patchSettings(settings, {
+                      background_image: null,
+                      background_color: null,
+                    }),
+                  )
+                }
+              />
+            )}
+            <Selector
+              label={t("fontFamily")}
+              value={settings.font_family ?? "system"}
+              onChange={(v) => setSettings(patchSettings(settings, { font_family: v }))}
+              options={[
+                { value: "system", label: t("fontSystem") },
+                { value: "noto", label: t("fontNoto") },
+                { value: "source", label: t("fontSource") },
+                { value: "plex", label: t("fontPlex") },
+              ]}
+            />
+            <Selector
+              label={t("uiScale")}
+              value={String(settings.ui_scale ?? 1)}
+              onChange={(v) =>
+                setSettings(patchSettings(settings, { ui_scale: Number(v) || 1 }))
+              }
+              options={[
+                { value: "0.9", label: "90%" },
+                { value: "1", label: "100%" },
+                { value: "1.1", label: "110%" },
+                { value: "1.25", label: "125%" },
+              ]}
             />
             <Button type="submit" label={t("save")} variant="primary" />
           </VStack>

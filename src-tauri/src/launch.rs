@@ -479,7 +479,7 @@ pub fn launch_instance(
 
     let mut vars: HashMap<&str, String> = HashMap::new();
     vars.insert("natives_directory", natives.to_string_lossy().to_string());
-    vars.insert("launcher_name", "EUML".into());
+    vars.insert("launcher_name", "Northstar".into());
     vars.insert("launcher_version", "0.1.0".into());
     vars.insert("classpath", cp.clone());
     vars.insert(

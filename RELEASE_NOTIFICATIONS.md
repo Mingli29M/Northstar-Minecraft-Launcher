@@ -19,7 +19,7 @@ Apple will show **“app is damaged”** for downloads that are not Developer ID
 CI uses **ad-hoc** signing (`APPLE_SIGNING_IDENTITY=-`). Users may need:
 
 ```bash
-xattr -cr /Applications/EUML.app
+xattr -cr /Applications/Northstar.app
 ```
 
 then right-click → **Open**.

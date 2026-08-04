@@ -414,9 +414,9 @@ export function HostPage() {
           name: listName.trim(),
           uuid: listUuid.trim() || "00000000-0000-0000-0000-000000000000",
           created: new Date().toISOString(),
-          source: "EUML",
+          source: "Northstar",
           expires: "forever",
-          reason: "Banned via EUML",
+          reason: "Banned via Northstar",
         },
       ],
     });
@@ -433,9 +433,9 @@ export function HostPage() {
         {
           ip: listIp.trim(),
           created: new Date().toISOString(),
-          source: "EUML",
+          source: "Northstar",
           expires: "forever",
-          reason: "Banned via EUML",
+          reason: "Banned via Northstar",
         },
       ],
     });
