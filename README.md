@@ -48,7 +48,11 @@ npm run tauri:build
 
 ## Marketing site (GitHub Pages)
 
-Source lives in [`website/`](website/). After push to `main` (paths under `website/**`) or **Actions → pages → Run workflow**, the site deploys to:
+Source lives in [`website/`](website/). The site uses the **same Meta Astryx UI** as the launcher (`AppShell`, `SideNav`, `Card`, `Button`, `Banner`, `theme-neutral`).
+
+Pages: Home · Features · Download · About · License (All Rights Reserved, branding, third-party, Mojang trademark — similar structure to Prism / MultiMC / PCL project docs).
+
+After push to `main` (paths under `website/**`) or **Actions → pages → Run workflow**, the site deploys to:
 
 https://mingli29m.github.io/Northstar-Minecraft-Launcher/
 

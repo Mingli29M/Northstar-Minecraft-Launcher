@@ -1,14 +1,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { Theme } from "@astryxdesign/core/theme";
-import { neutralTheme } from "@astryxdesign/theme-neutral";
+import { Providers } from "./providers";
 import { App } from "./App";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Theme theme={neutralTheme}>
+    <Providers>
       <App />
-    </Theme>
+    </Providers>
   </StrictMode>,
 );
