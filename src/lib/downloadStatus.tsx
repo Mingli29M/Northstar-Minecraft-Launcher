@@ -129,16 +129,17 @@ export function DownloadStatusProvider({ children }: { children: ReactNode }) {
       setProgress(event.payload);
     }).then((fn) => unlisteners.push(fn));
 
-    // Track whether the detached console window exists
-    const poll = window.setInterval(() => {
-      WebviewWindow.getByLabel("console")
-        .then((w) => setConsoleDetached(Boolean(w)))
-        .catch(() => setConsoleDetached(false));
-    }, 1500);
+    // Track detached console via window events (no 1.5s polling).
+    void WebviewWindow.getByLabel("console")
+      .then((w) => {
+        if (!cancelled) setConsoleDetached(Boolean(w));
+      })
+      .catch(() => {
+        if (!cancelled) setConsoleDetached(false);
+      });
 
     return () => {
       cancelled = true;
-      clearInterval(poll);
       unlisteners.forEach((fn) => fn());
     };
   }, [appendLocal]);
@@ -178,6 +179,9 @@ export function DownloadStatusProvider({ children }: { children: ReactNode }) {
         win.once("tauri://created", () => {
           setConsoleDetached(true);
           setConsoleOpen(false);
+        });
+        win.once("tauri://destroyed", () => {
+          setConsoleDetached(false);
         });
         win.once("tauri://error", () => {
           setConsoleDetached(false);

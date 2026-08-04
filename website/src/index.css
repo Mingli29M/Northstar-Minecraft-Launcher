@@ -8,45 +8,97 @@
 @import "@astryxdesign/core/tailwind-theme.css";
 @import "tailwindcss/utilities.css" layer(utilities);
 
+:root {
+  --ns-ink: #14202b;
+  --ns-muted: #5c6b7a;
+  --ns-accent: #1370f0;
+  --ns-surface: #f7f8fa;
+  --ns-elevated: #ffffff;
+  --ns-line: color-mix(in srgb, #1c1917 12%, transparent);
+  --font-display: "IBM Plex Sans", "Source Sans 3", system-ui, sans-serif;
+  --font-body: "Source Sans 3", "IBM Plex Sans", system-ui, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
 html,
 body,
 #root {
-  height: 100%;
   margin: 0;
+  min-height: 100%;
 }
 
 body {
-  background: var(--color-background-body, #f5f5f4);
-  color: var(--color-text-primary, #1c1917);
-  font-family: "Source Sans 3", "IBM Plex Sans", system-ui, sans-serif;
+  font-family: var(--font-body);
+  background: var(--ns-surface);
+  color: var(--ns-ink);
+  -webkit-font-smoothing: antialiased;
 }
 
-#astryx-app-shell-main {
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  min-height: 0;
+a {
+  color: var(--ns-accent);
 }
 
-.ns-page {
-  max-width: 720px;
-  padding-bottom: 48px;
+.ns-site {
+  min-height: 100%;
+}
+
+.ns-topnav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem clamp(1.25rem, 4vw, 3rem);
+  background: color-mix(in srgb, var(--ns-elevated) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--ns-line);
+}
+
+.ns-topnav-brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+  color: var(--ns-ink);
+  text-decoration: none;
+}
+
+.ns-topnav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  align-items: center;
+}
+
+.ns-topnav-links a {
+  color: var(--ns-muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.ns-topnav-links a:hover {
+  color: var(--ns-ink);
 }
 
 .ns-hero {
   position: relative;
-  border-radius: 12px;
-  padding: clamp(2rem, 5vw, 3.25rem);
+  min-height: min(88vh, 760px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: clamp(3rem, 10vh, 6rem) clamp(1.25rem, 4vw, 3rem) clamp(2.5rem, 6vh, 4rem);
   overflow: hidden;
   background:
-    radial-gradient(ellipse 80% 70% at 85% 10%, color-mix(in srgb, var(--color-accent, #1370f0) 22%, transparent), transparent 55%),
-    radial-gradient(ellipse 60% 50% at 5% 90%, color-mix(in srgb, var(--color-accent, #1370f0) 10%, transparent), transparent 50%),
-    linear-gradient(
-      160deg,
-      color-mix(in srgb, var(--color-background-elevated, #fff) 92%, #0b1a2a),
-      var(--color-background-elevated, #fff)
-    );
-  border: 1px solid color-mix(in srgb, var(--color-border-primary, #d6d3d1) 80%, transparent);
+    radial-gradient(ellipse 90% 70% at 78% 18%, color-mix(in srgb, var(--ns-accent) 28%, transparent), transparent 55%),
+    radial-gradient(ellipse 55% 45% at 12% 88%, color-mix(in srgb, var(--ns-accent) 12%, transparent), transparent 50%),
+    linear-gradient(165deg, #0b1520 0%, #121c28 42%, #1a2430 100%);
+  color: #eef3f8;
 }
 
 .ns-hero::before {
@@ -55,42 +107,162 @@ body {
   inset: 0;
   pointer-events: none;
   background-image:
-    radial-gradient(1.5px 1.5px at 18% 28%, color-mix(in srgb, var(--color-accent, #1370f0) 55%, transparent), transparent),
-    radial-gradient(1px 1px at 42% 16%, color-mix(in srgb, var(--color-text-primary, #1c1917) 25%, transparent), transparent),
-    radial-gradient(1.5px 1.5px at 72% 34%, color-mix(in srgb, var(--color-accent, #1370f0) 40%, transparent), transparent),
-    radial-gradient(1px 1px at 88% 58%, color-mix(in srgb, var(--color-text-primary, #1c1917) 18%, transparent), transparent);
-  opacity: 0.9;
+    radial-gradient(1.5px 1.5px at 14% 24%, rgba(255, 255, 255, 0.55), transparent),
+    radial-gradient(1px 1px at 36% 48%, rgba(255, 255, 255, 0.35), transparent),
+    radial-gradient(1.5px 1.5px at 58% 16%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 74% 38%, rgba(255, 255, 255, 0.3), transparent),
+    radial-gradient(2px 2px at 88% 22%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 46% 72%, rgba(255, 255, 255, 0.35), transparent);
+  animation: ns-drift 32s linear infinite;
 }
 
-.ns-hero > * {
+@keyframes ns-drift {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-20px);
+  }
+}
+
+.ns-hero-inner {
   position: relative;
   z-index: 1;
+  max-width: 40rem;
 }
 
 .ns-brand {
-  font-family: "IBM Plex Sans", "Source Sans 3", system-ui, sans-serif;
+  font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(2.75rem, 8vw, 4.25rem);
-  letter-spacing: -0.03em;
-  line-height: 0.95;
-  margin: 0 0 0.75rem;
+  font-size: clamp(3.25rem, 11vw, 5.75rem);
+  letter-spacing: -0.035em;
+  line-height: 0.92;
+  margin: 0 0 1rem;
 }
 
-.ns-license {
-  white-space: pre-wrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.85rem;
-  line-height: 1.55;
-  margin: 0;
-  padding: 16px;
-  border-radius: 8px;
-  background: var(--color-background-secondary, #e7e5e4);
-  border: 1px solid color-mix(in srgb, var(--color-border-primary, #d6d3d1) 70%, transparent);
+.ns-tagline {
+  margin: 0 0 1.75rem;
+  font-size: clamp(1.05rem, 2.2vw, 1.25rem);
+  line-height: 1.45;
+  color: color-mix(in srgb, #eef3f8 72%, transparent);
+  max-width: 28rem;
+}
+
+.ns-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.ns-section {
+  padding: clamp(3rem, 7vw, 5rem) clamp(1.25rem, 4vw, 3rem);
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.ns-section h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.65rem, 3.5vw, 2.15rem);
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5rem;
+}
+
+.ns-section-lead {
+  margin: 0 0 1.75rem;
+  color: var(--ns-muted);
+  max-width: 38rem;
+  line-height: 1.5;
+}
+
+.ns-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .ns-grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.ns-compare-wrap {
   overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid var(--ns-line);
+  background: var(--ns-elevated);
+}
+
+.ns-compare {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  min-width: 640px;
+}
+
+.ns-compare th,
+.ns-compare td {
+  text-align: left;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--ns-line);
+  vertical-align: top;
+}
+
+.ns-compare th {
+  font-family: var(--font-display);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--ns-accent) 6%, var(--ns-elevated));
+}
+
+.ns-compare tr:last-child td {
+  border-bottom: none;
+}
+
+.ns-compare td:first-child,
+.ns-compare th:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ns-muted {
+  color: var(--ns-muted);
+}
+
+.ns-footnote {
+  margin-top: 0.85rem;
+  font-size: 0.88rem;
+  color: var(--ns-muted);
+  line-height: 1.45;
 }
 
 .ns-footer {
-  margin-top: 32px;
-  padding-top: 16px;
-  border-top: 1px solid color-mix(in srgb, var(--color-border-primary, #d6d3d1) 70%, transparent);
+  padding: 2rem clamp(1.25rem, 4vw, 3rem) 3rem;
+  border-top: 1px solid var(--ns-line);
+  color: var(--ns-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.ns-footer-inner {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.ns-license-block {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin: 0;
+  padding: 1rem;
+  border-radius: 8px;
+  background: var(--color-background-secondary, #e7e5e4);
+  border: 1px solid var(--ns-line);
+  overflow-x: auto;
+}
+
+.ns-page-pad {
+  padding: clamp(2rem, 5vw, 3.5rem) clamp(1.25rem, 4vw, 3rem);
+  max-width: 720px;
+  margin: 0 auto;
 }

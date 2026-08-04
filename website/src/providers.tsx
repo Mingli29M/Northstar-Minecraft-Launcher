@@ -11,15 +11,11 @@ function RRLink({
   ...rest
 }: ComponentProps<"a"> & { href?: string }) {
   if (!href) {
-    return (
-      <a {...rest}>
-        {children}
-      </a>
-    );
+    return <a {...rest}>{children}</a>;
   }
-  if (/^https?:\/\//i.test(href) || href.startsWith("mailto:")) {
+  if (/^https?:\/\//i.test(href) || href.startsWith("mailto:") || href.startsWith("#")) {
     return (
-      <a href={href} {...rest} rel={rest.rel ?? "noreferrer"}>
+      <a href={href} {...rest} rel={rest.rel ?? (href.startsWith("http") ? "noreferrer" : undefined)}>
         {children}
       </a>
     );

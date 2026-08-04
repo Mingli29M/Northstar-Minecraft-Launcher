@@ -19,40 +19,61 @@ export function NewsPanel({ compact = false }: Props) {
   const { t } = useI18n();
   const [news, setNews] = useState<MinecraftNewsItem[]>([]);
   const [notes, setNotes] = useState<MinecraftPatchNote[]>([]);
-  const [loadingNews, setLoadingNews] = useState(true);
-  const [loadingNotes, setLoadingNotes] = useState(true);
+  const [loadingNews, setLoadingNews] = useState(false);
+  const [loadingNotes, setLoadingNotes] = useState(false);
   const [errNews, setErrNews] = useState<string | null>(null);
   const [errNotes, setErrNotes] = useState<string | null>(null);
+  const [started, setStarted] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setLoadingNews(true);
-    setLoadingNotes(true);
-    // Fetch independently — a slow/huge patch-notes download must not blank news.
-    api
-      .fetchMinecraftNews()
-      .then((n) => {
-        if (!cancelled) setNews(n);
-      })
-      .catch((e) => {
-        if (!cancelled) setErrNews(String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingNews(false);
-      });
-    api
-      .fetchMinecraftPatchNotes()
-      .then((p) => {
-        if (!cancelled) setNotes(p);
-      })
-      .catch((e) => {
-        if (!cancelled) setErrNotes(String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingNotes(false);
-      });
+    let idleHandle: number | undefined;
+    let timeoutHandle: number | undefined;
+
+    const load = () => {
+      if (cancelled) return;
+      setStarted(true);
+      setLoadingNews(true);
+      setLoadingNotes(true);
+      // Fetch independently — a slow/huge patch-notes download must not blank news.
+      api
+        .fetchMinecraftNews()
+        .then((n) => {
+          if (!cancelled) setNews(n);
+        })
+        .catch((e) => {
+          if (!cancelled) setErrNews(String(e));
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingNews(false);
+        });
+      api
+        .fetchMinecraftPatchNotes()
+        .then((p) => {
+          if (!cancelled) setNotes(p);
+        })
+        .catch((e) => {
+          if (!cancelled) setErrNotes(String(e));
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingNotes(false);
+        });
+    };
+
+    // Defer network + image decode off the cold-start critical path.
+    const ric = window.requestIdleCallback?.bind(window);
+    if (ric) {
+      idleHandle = ric(() => load(), { timeout: 2500 });
+    } else {
+      timeoutHandle = window.setTimeout(load, 1200);
+    }
+
     return () => {
       cancelled = true;
+      if (idleHandle != null && window.cancelIdleCallback) {
+        window.cancelIdleCallback(idleHandle);
+      }
+      if (timeoutHandle != null) window.clearTimeout(timeoutHandle);
     };
   }, []);
 
@@ -78,7 +99,15 @@ export function NewsPanel({ compact = false }: Props) {
           <Text color="secondary">{t("loading")}</Text>
         </HStack>
       )}
-      {!loadingNews && news.length === 0 && !errNews && <Text color="secondary">{t("newsEmpty")}</Text>}
+      {!started && !loadingNews && (
+        <HStack gap={2} align="center">
+          <Spinner size="sm" />
+          <Text color="secondary">{t("loading")}</Text>
+        </HStack>
+      )}
+      {started && !loadingNews && news.length === 0 && !errNews && (
+        <Text color="secondary">{t("newsEmpty")}</Text>
+      )}
       {news.slice(0, newsLimit).map((n, i) => (
         <Card key={`n-${i}`} padding={3}>
           <HStack gap={3} align="start">
