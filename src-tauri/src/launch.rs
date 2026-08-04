@@ -514,10 +514,14 @@ pub fn launch_instance(
     }
 
     let mut from_json_jvm = collect_feature_args(&vanilla, "jvm");
-    from_json_jvm.extend(collect_feature_args(&version, "jvm"));
     let mut from_json_game = collect_feature_args(&vanilla, "game");
-    // Loader profile game args (usually empty for Fabric)
-    from_json_game.extend(collect_feature_args(&version, "game"));
+    // For vanilla, `version` JSON is the same profile as `vanilla` — merging both
+    // duplicates --version/--username/etc and crashes jopt-simple. Overlay loader
+    // args only when the instance is not vanilla.
+    if !matches!(inst.loader, LoaderKind::Vanilla) {
+        from_json_jvm.extend(collect_feature_args(&version, "jvm"));
+        from_json_game.extend(collect_feature_args(&version, "game"));
+    }
 
     let use_json_args = !from_json_jvm.is_empty() || !from_json_game.is_empty();
 

@@ -13,6 +13,20 @@ export default defineConfig({
     },
   },
   clearScreen: false,
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/@astryxdesign")) return "astryx";
+          if (id.includes("node_modules/lucide-react")) return "icons";
+          if (id.includes("node_modules/react-router")) return "router";
+          if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/")) {
+            return "react-vendor";
+          }
+        },
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,

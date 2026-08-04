@@ -119,14 +119,18 @@ export function HomePage() {
       <section className="ns-section" id="compare" aria-labelledby="compare-heading">
         <h2 id="compare-heading">Compare</h2>
         <p className="ns-section-lead">
-          Architecture and product scope versus common launchers. Idle RAM / CPU numbers are not
-          published here yet — see the note below.
+          Architecture and product scope versus common launchers. Idle RAM uses the controlled
+          same-OS protocol in{" "}
+          <a href="https://github.com/Mingli29M/Northstar-Minecraft-Launcher/blob/main/BENCHMARKS.md">
+            BENCHMARKS.md
+          </a>{" "}
+          (Working Set ≈ RSS after 30s idle).
         </p>
 
         <Banner
           status="warning"
-          title="Measured efficiency TBD"
-          description="Fair idle-RAM and CPU comparisons need a release build of Northstar plus Prism and MultiMC on the same machine. This PC has PCL CE, HMCL, and a debug euml.exe only — not enough for a trustworthy table. Hand that benchmark pass to a cloud agent (or a dedicated test box) before citing numbers."
+          title="WebView vs Qt"
+          description="Northstar’s Tauri + WebKitGTK shell still uses more Working Set than Qt (Prism/MultiMC), but private bytes after compositor opts (~100 MiB) beat HMCL’s JavaFX baseline. Full tables and methodology: BENCHMARKS.md."
         />
 
         <div style={{ height: 12 }} />
@@ -153,12 +157,12 @@ export function HomePage() {
                 <td>Java / JVM UI</td>
               </tr>
               <tr>
-                <td>Idle RAM (measured)</td>
-                <td className="ns-muted">Pending release + bench</td>
-                <td className="ns-muted">Pending install + bench</td>
-                <td className="ns-muted">Pending install + bench</td>
-                <td className="ns-muted">Local install; not published yet</td>
-                <td className="ns-muted">Local install; not published yet</td>
+                <td>Idle Working Set (MiB)</td>
+                <td>~337</td>
+                <td>~64</td>
+                <td>~111</td>
+                <td>N/A (Windows-only here)</td>
+                <td>~297</td>
               </tr>
               <tr>
                 <td>Disk (installer / portable)</td>
@@ -220,10 +224,10 @@ export function HomePage() {
           </table>
         </div>
         <p className="ns-footnote">
-          Comparison is qualitative on purpose. Do not treat “Pending” cells as wins or losses.
-          Prism and MultiMC often win on minimal Qt idle footprints; Java and .NET launchers pay a
-          runtime baseline; Tauri sits between a pure native toolkit and Electron. Publish measured
-          Working Set / private bytes after a controlled idle-30s protocol on identical hardware.
+          Idle Working Set measured 2026-08-04 on Ubuntu 24.04 (release Northstar, Prism 11.0.3,
+          MultiMC lin64, HMCL 3.16.3). Private bytes and game-running totals: BENCHMARKS.md. Prism /
+          MultiMC win on Qt idle footprint; HMCL pays a JVM baseline; Tauri sits between native Qt
+          and Electron-class WebViews.
         </p>
       </section>
 

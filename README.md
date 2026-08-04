@@ -33,6 +33,10 @@ Third-party libraries keep their own licenses.
 - Dedicated server hosting (UPnP / NAT-PMP / PCP)
 - Appearance customization (persisted in `%APPDATA%\euml\settings.json`)
 
+## Resource usage
+
+Same-OS idle and vanilla **1.21.11** samples (Working Set ≈ RSS, Private Bytes ≈ USS) are documented in [BENCHMARKS.md](BENCHMARKS.md).
+
 ## Develop
 
 ```bash
@@ -52,7 +56,7 @@ Source lives in [`website/`](website/). Normal project landing page (hero, why, 
 
 Pages: `/` (landing) · `/about` · `/license`.
 
-Measured RAM/CPU vs Prism/MultiMC/PCL is **not** filled in until a controlled benchmark run (needs release Northstar + those apps). Architecture comparison is on the landing page.
+Idle Working Set / private-bytes samples vs Prism / MultiMC / HMCL / PCL are in [BENCHMARKS.md](BENCHMARKS.md) and on the landing Compare section + About page.
 
 ```bash
 cd website

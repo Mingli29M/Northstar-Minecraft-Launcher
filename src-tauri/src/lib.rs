@@ -26,6 +26,32 @@ mod upnp;
 mod world_settings;
 
 use models::{Instance, LauncherSettings, ModEntry};
+use tauri::Manager;
+
+/// Trim WebView features the launcher UI does not need (WebGL/WebAudio/page cache).
+/// Expected wins land mainly in WebKitWebProcess RSS on Linux.
+fn tune_webview_for_launcher(app: &tauri::App) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    #[cfg(target_os = "linux")]
+    {
+        use webkit2gtk::{SettingsExt, WebViewExt};
+        let _ = win.with_webview(|webview| {
+            let wv = webview.inner();
+            if let Some(settings) = WebViewExt::settings(&wv) {
+                settings.set_enable_webgl(false);
+                settings.set_enable_webaudio(false);
+                settings.set_enable_page_cache(false);
+                settings.set_enable_smooth_scrolling(false);
+            }
+        });
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = win;
+    }
+}
 
 #[tauri::command]
 fn list_instances() -> Result<Vec<Instance>, String> {
@@ -799,11 +825,28 @@ async fn dedicated_download_mods(id: String, dest_path: String) -> Result<String
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Launcher UI does not need accelerated WebKit compositing. On Linux (esp.
+    // software/llvmpipe and some GPU stacks) these cut WebKitWebProcess RSS
+    // substantially without changing product behavior.
+    #[cfg(target_os = "linux")]
+    {
+        // Prefer existing user overrides if already set.
+        if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
+            // SAFETY: called once before any threads/WebKit init in `run()`.
+            unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1") };
+        }
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_shell::init())
+        .setup(|app| {
+            tune_webview_for_launcher(app);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_instances,
             get_instance,

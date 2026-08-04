@@ -1,21 +1,48 @@
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { AppShell } from "@astryxdesign/core/AppShell";
+import { Button } from "@astryxdesign/core/Button";
+import { Spinner } from "@astryxdesign/core/Spinner";
 import { useI18n } from "./i18n";
 import { AppNav } from "./components/AppNav";
 import { DownloadStatusBar } from "./components/DownloadStatusBar";
 import { KeepAliveRoutes } from "./components/KeepAliveRoutes";
 import { LaunchPage } from "./pages/LaunchPage";
-import { DownloadPage } from "./pages/DownloadPage";
-import { ModrinthDetailPage } from "./pages/ModrinthDetailPage";
-import { NewsPage } from "./pages/NewsPage";
-import { VersionsPage } from "./pages/VersionsPage";
-import { ServersPage } from "./pages/ServersPage";
-import { HostPage } from "./pages/HostPage";
-import { AccountsPage } from "./pages/AccountsPage";
-import { SettingsPage } from "./pages/SettingsPage";
 import { useDownloadStatus } from "./lib/downloadStatus";
-import { Button } from "@astryxdesign/core/Button";
+
+// Heavy pages stay out of the cold-start JS/JIT heap until first visit.
+const DownloadPage = lazy(() =>
+  import("./pages/DownloadPage").then((m) => ({ default: m.DownloadPage })),
+);
+const ModrinthDetailPage = lazy(() =>
+  import("./pages/ModrinthDetailPage").then((m) => ({ default: m.ModrinthDetailPage })),
+);
+const NewsPage = lazy(() => import("./pages/NewsPage").then((m) => ({ default: m.NewsPage })));
+const VersionsPage = lazy(() =>
+  import("./pages/VersionsPage").then((m) => ({ default: m.VersionsPage })),
+);
+const ServersPage = lazy(() =>
+  import("./pages/ServersPage").then((m) => ({ default: m.ServersPage })),
+);
+const HostPage = lazy(() => import("./pages/HostPage").then((m) => ({ default: m.HostPage })));
+const AccountsPage = lazy(() =>
+  import("./pages/AccountsPage").then((m) => ({ default: m.AccountsPage })),
+);
+const SettingsPage = lazy(() =>
+  import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+);
+
+function PageFallback() {
+  return (
+    <div style={{ display: "grid", placeItems: "center", minHeight: 180 }}>
+      <Spinner size="md" />
+    </div>
+  );
+}
+
+function LazyPane({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<PageFallback />}>{children}</Suspense>;
+}
 
 function ConsoleNavButton() {
   const { t } = useI18n();
@@ -53,6 +80,8 @@ export default function App() {
     [t],
   );
 
+  const stickyPaneIds = useMemo(() => ["launch"], []);
+
   const sideNav = useMemo(
     () => (
       <>
@@ -69,42 +98,74 @@ export default function App() {
       {
         id: "mod-detail",
         match: (p: string) => p.startsWith("/download/mod/"),
-        element: <ModrinthDetailPage />,
+        element: (
+          <LazyPane>
+            <ModrinthDetailPage />
+          </LazyPane>
+        ),
       },
       {
         id: "download",
         match: (p: string) => p.startsWith("/download") && !p.startsWith("/download/mod/"),
-        element: <DownloadPage />,
+        element: (
+          <LazyPane>
+            <DownloadPage />
+          </LazyPane>
+        ),
       },
       {
         id: "news",
         match: (p: string) => p.startsWith("/news"),
-        element: <NewsPage />,
+        element: (
+          <LazyPane>
+            <NewsPage />
+          </LazyPane>
+        ),
       },
       {
         id: "versions",
         match: (p: string) => p.startsWith("/versions"),
-        element: <VersionsPage />,
+        element: (
+          <LazyPane>
+            <VersionsPage />
+          </LazyPane>
+        ),
       },
       {
         id: "servers",
         match: (p: string) => p.startsWith("/servers"),
-        element: <ServersPage />,
+        element: (
+          <LazyPane>
+            <ServersPage />
+          </LazyPane>
+        ),
       },
       {
         id: "host",
         match: (p: string) => p.startsWith("/host"),
-        element: <HostPage />,
+        element: (
+          <LazyPane>
+            <HostPage />
+          </LazyPane>
+        ),
       },
       {
         id: "accounts",
         match: (p: string) => p.startsWith("/accounts"),
-        element: <AccountsPage />,
+        element: (
+          <LazyPane>
+            <AccountsPage />
+          </LazyPane>
+        ),
       },
       {
         id: "settings",
         match: (p: string) => p.startsWith("/settings"),
-        element: <SettingsPage />,
+        element: (
+          <LazyPane>
+            <SettingsPage />
+          </LazyPane>
+        ),
       },
     ],
     [],
@@ -119,7 +180,7 @@ export default function App() {
         sideNav={sideNav}
         mobileNav={{ breakpoint: "none" }}
       >
-        <KeepAliveRoutes panes={panes} />
+        <KeepAliveRoutes panes={panes} maxAlive={3} stickyIds={stickyPaneIds} />
       </AppShell>
       <DownloadStatusBar />
     </>
