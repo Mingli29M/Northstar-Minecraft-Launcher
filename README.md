@@ -48,21 +48,21 @@ npm run tauri:build
 
 ## Marketing site (GitHub Pages)
 
-Source lives in [`website/`](website/). The site uses the **same Meta Astryx UI** as the launcher (`AppShell`, `SideNav`, `Card`, `Button`, `Banner`, `theme-neutral`).
+Source lives in [`website/`](website/). Normal project landing page (hero, why, features, compare, download) styled with **Meta Astryx** components — not a copy of the launcher AppShell.
 
-Pages: Home · Features · Download · About · License (All Rights Reserved, branding, third-party, Mojang trademark — similar structure to Prism / MultiMC / PCL project docs).
+Pages: `/` (landing) · `/about` · `/license`.
 
-After push to `main` (paths under `website/**`) or **Actions → pages → Run workflow**, the site deploys to:
-
-https://mingli29m.github.io/Northstar-Minecraft-Launcher/
-
-Enable **Settings → Pages → Source: GitHub Actions** once if Pages is not already set up.
+Measured RAM/CPU vs Prism/MultiMC/PCL is **not** filled in until a controlled benchmark run (needs release Northstar + those apps). Architecture comparison is on the landing page.
 
 ```bash
 cd website
 npm install
 npm run dev
 ```
+
+Site URL: https://mingli29m.github.io/Northstar-Minecraft-Launcher/
+
+Enable **Settings → Pages → Source: GitHub Actions** once if needed.
 
 ## Release builds (GitHub Actions)
 
