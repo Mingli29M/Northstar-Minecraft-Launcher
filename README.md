@@ -33,6 +33,10 @@ Third-party libraries keep their own licenses.
 - Dedicated server hosting (UPnP / NAT-PMP / PCP)
 - Appearance customization (persisted in `%APPDATA%\euml\settings.json`)
 
+## Resource usage
+
+Same-OS idle and vanilla **1.21.11** samples (Working Set ≈ RSS, Private Bytes ≈ USS) are documented in [BENCHMARKS.md](BENCHMARKS.md).
+
 ## Develop
 
 ```bash
