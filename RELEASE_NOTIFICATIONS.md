@@ -1,39 +1,56 @@
 # Release notifications and publishing
 
-This file contains the release-related notifications and instructions referenced from the repository README.
-
 ## What the CI does
 
-The GitHub Actions CI builds platform installers for Windows, macOS (Apple Silicon + Intel), and Linux and attaches the generated installers to a draft GitHub Release.
+The GitHub Actions `publish` workflow builds installers for Windows, macOS (Apple Silicon + Intel), and Linux and attaches them to a GitHub Release tagged `euml-v__VERSION__` (version comes from `tauri.conf.json` / `package.json`).
 
-## Triggering the publish workflow
+## Triggering a release
 
-You can trigger the workflow in one of these ways:
+1. Merge the intended commits into `main`.
+2. Fast-forward or merge `main` into `release` (or merge the release PR).
+3. Push to `release` — or run **Actions → publish → Run workflow**.
 
-- From the GitHub web UI: go to Actions → find the workflow named `publish` (or the publish workflow used by this repo) → Run workflow → select branch `release` and start the run.
-- Push a commit to the `release` branch; the workflow should run on pushes to that branch if configured.
-- Use the workflow dispatch URL / run page directly. Example run (most recent run link provided by the user):
+## macOS signing — permanent Gatekeeper fix
 
-  https://github.com/Mingli29M/Northstar-Minecraft-Launcher/actions/runs/30821836315
+Apple will show **“app is damaged”** for downloads that are not Developer ID signed + notarized.
 
-## Required pre-checks
+### Without secrets (default)
 
-1. Ensure the repository has Settings → Actions → Workflow permissions → Read and write (Actions needs write permissions to create/update draft releases and attach artifacts).
-2. Ensure any secrets required by the publish workflow (signing keys, tokens, etc.) are set in Settings → Secrets.
-3. Ensure the branch `release` exists in the repo (create/push it if it doesn't). The repo now has a `release` branch created.
+CI uses **ad-hoc** signing (`APPLE_SIGNING_IDENTITY=-`). Users may need:
 
-## What happens after CI completes
+```bash
+xattr -cr /Applications/EUML.app
+```
 
-- The workflow creates a draft GitHub Release and attaches built installers as artifacts. You can find it under Releases → Drafts in the repository.
-- Download the artifacts from the draft release — you do not need a local macOS machine to build macOS artifacts.
+then right-click → **Open**.
 
-## Troubleshooting
+### With Apple Developer Program (permanent)
 
-- If the workflow fails or artifacts are missing, open the Actions run and inspect the job logs for the failing job.
-- If Actions cannot write the draft release, double-check the Workflow permissions setting mentioned above and any permissions required by actions used in the workflow (e.g., a GitHub token with write permissions).
+Create a **Developer ID Application** certificate, export as `.p12`, then add repository secrets:
 
-## Want me to
+| Secret | Value |
+| --- | --- |
+| `APPLE_CERTIFICATE` | `openssl base64 -A -in certificate.p12` output |
+| `APPLE_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12` |
+| `APPLE_SIGNING_IDENTITY` | Optional. e.g. `Developer ID Application: Your Name (TEAMID)`. Auto-detected if omitted. |
+| `APPLE_ID` | Apple ID email |
+| `APPLE_PASSWORD` | [App-specific password](https://appleid.apple.com) |
+| `APPLE_TEAM_ID` | 10-character Team ID |
 
-- Trigger the `publish` workflow for you now.
-- Inspect the Actions run logs at the provided URL and report back on failures or the draft release state.
-- Open a pull request that adds or refines these release instructions.
+**Or** App Store Connect API key instead of Apple ID password:
+
+| Secret | Value |
+| --- | --- |
+| `APPLE_API_ISSUER` | Issuer ID |
+| `APPLE_API_KEY` | Key ID |
+| `APPLE_API_KEY_PATH` | Path to downloaded `.p8` on the runner (or wire a step that writes it) |
+
+Also required: **Settings → Actions → General → Workflow permissions → Read and write**.
+
+When `APPLE_CERTIFICATE` is present, the workflow imports it into a temporary keychain, signs with Developer ID, and Tauri notarizes using the Apple ID / API credentials.
+
+## Finding the files
+
+After a green run: **Releases** → tag `euml-v1.0.0` (or current version).
+
+In-app notes: **Settings → About**.

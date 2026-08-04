@@ -1,6 +1,50 @@
 # EUML Changelog
 
-## 0.1.0 — 2026-08-03
+## 1.0.0 — Northstar — 2026-08-04
+
+First public release of EUML (Enhanced Ultimate Minecraft Launcher).
+
+### Launch experience
+- PCL/HMCL-style home screen with large Start button and quick version picker
+- Per-instance JVM arguments, memory sliders, and Java runtime detection
+- Offline and online account switching without leaving the Launch page
+- Live console stream while the game boots, with crash-log shortcuts
+
+### Versions & loaders
+- Install Vanilla, Fabric, Quilt, Forge, NeoForge, and Paper/Purpur profiles
+- Smarter Forge / NeoForge detection so instances no longer show as Vanilla
+- Trailing dash stripped from version ids so Modrinth search works on 1.21.x builds
+- One-click loader reinstall and libraries/assets repair from instance settings
+
+### Mods & content
+- Browse, search, and install mods/modpacks from Modrinth inside the app
+- ReqGuard dependency scan before launch
+- Bulk mod update check with selective apply
+- Config editor with human-readable labels and Mod Menu–style section groups
+
+### Multiplayer & hosting
+- Saved servers list with ping status and quick-join
+- Built-in dedicated server host manager (start/stop, console, send commands)
+- Live host stats: players online, TPS/MSPT probes, and resource meters (Windows)
+- UPnP helpers for opening game ports on supported routers
+
+### Accounts & localization
+- Offline accounts with stable generated UUIDs
+- LittleSkin (authlib-injector) account support
+- UI languages: English, 简体中文, and Deutsch
+
+### Desktop packaging
+- Native installers for Windows (NSIS + MSI), macOS (Apple Silicon + Intel DMG), and Linux (AppImage, deb, rpm)
+- macOS: Developer ID + notarization when Apple CI secrets are set; otherwise ad-hoc signed
+- GitHub Actions publish workflow on the `release` branch
+
+### Fixes since 0.1.0 preview
+- Non-Windows Rust build: host_stats borrow-after-move
+- macOS Intel CI on `macos-15-intel` (no broken ARM cross-compile)
+- Minecraft news panel tolerates slow/failed patch-notes fetches
+- Config form no longer shows raw debug/dev key names
+
+## 0.1.0 — Preview — 2026-08-03
 
 ### Added
 - Launch screen with PCL/HMCL-style version selector and large Start button

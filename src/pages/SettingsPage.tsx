@@ -117,6 +117,9 @@ export function SettingsPage() {
           </Text>
           <Text>
             {t("appName")} {APP_VERSION}
+            {LAUNCHER_CHANGELOG[0]?.codename
+              ? ` “${LAUNCHER_CHANGELOG[0].codename}”`
+              : ""}
           </Text>
           <Text color="secondary" type="supporting">
             {t("aboutHint")}
@@ -125,14 +128,41 @@ export function SettingsPage() {
             {t("launcherChangelog")}
           </Text>
           {LAUNCHER_CHANGELOG.map((entry) => (
-            <VStack key={entry.version} gap={1} style={{ marginBottom: 8 }}>
-              <Text weight="semibold">
-                v{entry.version} · {entry.date}
-              </Text>
-              {entry.highlights.map((h) => (
-                <Text key={h} color="secondary" type="supporting" display="block">
-                  · {h}
+            <VStack
+              key={entry.version}
+              gap={2}
+              style={{
+                marginBottom: 12,
+                paddingBottom: 12,
+                borderBottom: "1px solid color-mix(in srgb, var(--color-border-primary, #d6d3d1) 70%, transparent)",
+              }}
+            >
+              <VStack gap={1}>
+                <Text weight="semibold">
+                  v{entry.version}
+                  {entry.codename ? ` — ${entry.codename}` : ""} · {entry.date}
                 </Text>
+                <Text color="secondary" type="supporting" display="block">
+                  {entry.summary}
+                </Text>
+              </VStack>
+              {entry.sections.map((section) => (
+                <VStack key={section.title} gap={1}>
+                  <Text weight="semibold" type="supporting" display="block">
+                    {section.title}
+                  </Text>
+                  {section.items.map((item) => (
+                    <Text
+                      key={item}
+                      color="secondary"
+                      type="supporting"
+                      display="block"
+                      style={{ paddingLeft: 8 }}
+                    >
+                      · {item}
+                    </Text>
+                  ))}
+                </VStack>
               ))}
             </VStack>
           ))}
