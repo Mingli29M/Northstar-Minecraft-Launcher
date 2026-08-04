@@ -2,10 +2,19 @@
 # Trigger: push to `release`, or Actions → "Run workflow".
 #
 # Repo Settings → Actions → General → Workflow permissions → Read and write
-# (needed so tauri-action can create a draft GitHub Release).
+# (needed so tauri-action can create a GitHub Release).
 #
-# Artifacts land on a draft GitHub Release (tag euml-v__VERSION__).
-# Open: https://github.com/Mingli29M/Northstar-Minecraft-Launcher/releases
+# macOS signing (permanent Gatekeeper fix):
+#   Add these repository secrets to enable Developer ID + notarization:
+#     APPLE_CERTIFICATE            — base64 of Developer ID Application .p12
+#     APPLE_CERTIFICATE_PASSWORD   — password for that .p12
+#     APPLE_SIGNING_IDENTITY       — e.g. "Developer ID Application: … (TEAMID)"
+#     APPLE_ID                     — Apple ID email
+#     APPLE_PASSWORD               — app-specific password
+#     APPLE_TEAM_ID                — 10-char Team ID
+#   Without them, macOS builds fall back to ad-hoc signing ("-").
+#
+# Artifacts: https://github.com/Mingli29M/Northstar-Minecraft-Launcher/releases
 
 name: publish
 
@@ -64,22 +73,72 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
-          # Keep aarch64 / x86_64 macOS caches separate (same job name otherwise).
           key: ${{ matrix.platform }}-${{ matrix.rust_target || 'native' }}
 
       - name: Install frontend dependencies
         run: npm ci
 
+      # Import Developer ID cert when secrets exist; otherwise ad-hoc ("-").
+      - name: Configure macOS code signing
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APPLE_CERTIFICATE:-}" ] && [ -n "${APPLE_CERTIFICATE_PASSWORD:-}" ]; then
+            KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+            CERT_PATH="${RUNNER_TEMP}/apple-certificate.p12"
+            KEYCHAIN_PATH="${RUNNER_TEMP}/euml-signing.keychain-db"
+            echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+            security list-keychain -d user -s "$KEYCHAIN_PATH"
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            rm -f "$CERT_PATH"
+            if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+              echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+            else
+              IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)"
+              if [ -z "$IDENTITY" ]; then
+                echo "Developer ID Application identity not found in imported certificate" >&2
+                exit 1
+              fi
+              echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+            fi
+            echo "Mac signing mode: Developer ID (notarization env passed if set)"
+          else
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            echo "Mac signing mode: ad-hoc (add APPLE_CERTIFICATE secrets for permanent Gatekeeper fix)"
+          fi
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Present when Configure macOS code signing ran; ad-hoc "-" otherwise.
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # Notarization (optional — only used when Developer ID signing is active)
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
         with:
           tagName: euml-v__VERSION__
           releaseName: EUML v__VERSION__
           releaseBody: |
-            Proprietary build — All Rights Reserved.
-            Download the installer for your platform from the assets below.
+            # EUML v__VERSION__ — Northstar
+
+            First public release. Proprietary build — All Rights Reserved.
+
+            ## Downloads
 
             | Platform | File |
             | --- | --- |
@@ -88,14 +147,12 @@ jobs:
             | macOS Intel | `EUML_*_x64.dmg` |
             | Linux | `EUML_*_amd64.AppImage` / `.deb` / `.rpm` |
 
-            ### macOS note
-            Builds are ad-hoc signed (no Apple Developer ID / notarization yet).
-            If macOS says the app is **damaged** and won't open:
-            1. Open Terminal
-            2. Run: `xattr -cr /Applications/EUML.app` (or the path you installed to)
-            3. Right-click the app → **Open**, then confirm
+            Full notes are also in **Settings → About** inside the app.
 
-            Or: System Settings → Privacy & Security → allow EUML.
-          releaseDraft: true
+            ### macOS Gatekeeper
+
+            - **With Apple Developer secrets configured in CI:** builds are Developer ID signed and notarized — open normally.
+            - **Ad-hoc fallback (no secrets):** if macOS says the app is damaged, run `xattr -cr /Applications/EUML.app`, then right-click → Open.
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

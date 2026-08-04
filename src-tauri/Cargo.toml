@@ -1,6 +1,6 @@
 [package]
 name = "euml"
-version = "0.1.0"
+version = "1.0.0"
 description = "EUML Minecraft Launcher"
 authors = ["EUML"]
 edition = "2021"
