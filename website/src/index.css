@@ -169,13 +169,12 @@ a.ns-nav-cta:focus-visible,
 }
 
 .ns-topnav-mark {
-  width: 26px;
-  height: 26px;
-  border-radius: 5px;
-  padding: 3px;
-  box-sizing: border-box;
-  background: color-mix(in srgb, var(--ns-hero-mid) 90%, #1e3a5f);
-  overflow: hidden;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .ns-topnav-mark > img {

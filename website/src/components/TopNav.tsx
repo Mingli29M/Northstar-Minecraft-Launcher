@@ -10,8 +10,8 @@ function BrandMark({ className }: { className?: string }) {
       <img
         src={`${import.meta.env.BASE_URL}northstar-mark.png`}
         alt=""
-        width={26}
-        height={26}
+        width={34}
+        height={34}
         decoding="async"
       />
     </span>
