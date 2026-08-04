@@ -193,9 +193,11 @@ export function SettingsPage() {
             )}
             <Selector
               label={t("fontFamily")}
-              value={settings.font_family ?? "system"}
+              value={settings.font_family ?? "source-han-sans"}
               onChange={(v) => setSettings(patchSettings(settings, { font_family: v }))}
               options={[
+                { value: "source-han-sans", label: t("fontSourceHanSans") },
+                { value: "source-han-serif", label: t("fontSourceHanSerif") },
                 { value: "system", label: t("fontSystem") },
                 { value: "noto", label: t("fontNoto") },
                 { value: "source", label: t("fontSource") },

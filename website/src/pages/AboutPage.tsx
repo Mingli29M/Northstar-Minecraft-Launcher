@@ -5,57 +5,56 @@ import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
 import { SiteFooter } from "../components/SiteFooter";
 import { TopNav } from "../components/TopNav";
-import { CHANGELOG, REPO } from "../lib/site";
+import { useI18n } from "../i18n";
+import { CHANGELOG_FILE, REPO } from "../lib/site";
 
-const IDLE_ROWS: [string, string, string, string, string][] = [
+const IDLE_ROWS: [string, string, string, string, string | "pcl"][] = [
   ["Prism 11.0.3", "64.1", "58.0", "0.0", "Qt6 portable"],
   ["MultiMC stable", "110.9", "50.2", "0.0", "Qt5 lin64"],
   ["HMCL 3.16.3", "296.5", "217.1", "0.3", "JavaFX jar"],
   ["Northstar 1.1.0", "337.0", "99.8", "0.3", "Tauri/WebKitGTK after opt"],
-  ["PCL CE 2.15.0", "—", "—", "—", "Windows-only; not measured"],
+  ["PCL CE 2.15.0", "—", "—", "—", "pcl"],
 ];
 
 export function AboutPage() {
+  const { t } = useI18n();
+  const headers = [
+    t("aboutColLauncher"),
+    t("aboutColWs"),
+    t("aboutColPrivate"),
+    t("aboutColCpu"),
+    t("aboutColNotes"),
+  ];
+
   return (
     <div className="ns-site">
       <TopNav />
       <main className="ns-page-pad">
         <VStack gap={4}>
           <VStack gap={2}>
-            <Text type="display-3">About</Text>
-            <Text color="secondary">
-              Product background and how Northstar relates to other launchers.
-            </Text>
+            <Text type="display-3">{t("aboutTitle")}</Text>
+            <Text color="secondary">{t("aboutLead")}</Text>
           </VStack>
 
           <Card padding={4}>
             <VStack gap={2}>
-              <Text weight="semibold">What is Northstar?</Text>
-              <Text>
-                Northstar is a proprietary desktop Minecraft launcher (early development also used
-                the name EUML). It targets a PCL / HMCL–style launch flow with Tauri 2 packaging and
-                a Meta Astryx UI — plus built-in Host and ReqGuard.
-              </Text>
+              <Text weight="semibold">{t("aboutWhatTitle")}</Text>
+              <Text>{t("aboutWhatBody")}</Text>
             </VStack>
           </Card>
 
           <Card padding={4}>
             <VStack gap={2}>
-              <Text weight="semibold">Independent project</Text>
-              <Text color="secondary">
-                Inspired by workflows from Prism, MultiMC, and PCL-class launchers, but not a fork
-                of those projects and not affiliated with them.
-              </Text>
+              <Text weight="semibold">{t("aboutIndepTitle")}</Text>
+              <Text color="secondary">{t("aboutIndepBody")}</Text>
             </VStack>
           </Card>
 
           <Card padding={4}>
             <VStack gap={2}>
-              <Text weight="semibold">Resource usage (same-OS sample)</Text>
+              <Text weight="semibold">{t("aboutResTitle")}</Text>
               <Text color="secondary">
-                Idle UI after 30s on Ubuntu 24.04 x86_64 (2026-08-04). Working Set ≈ Linux RSS;
-                Private Bytes ≈ <code>Private_Dirty + Private_Clean</code> from{" "}
-                <code>smaps_rollup</code>. Full methodology:{" "}
+                {t("aboutResBody")}{" "}
                 <a href={`${REPO}/blob/main/BENCHMARKS.md`}>BENCHMARKS.md</a>.
               </Text>
               <div style={{ overflowX: "auto" }}>
@@ -69,20 +68,18 @@ export function AboutPage() {
                 >
                   <thead>
                     <tr>
-                      {["Launcher", "Working Set (MiB)", "Private (MiB)", "CPU %", "Notes"].map(
-                        (h) => (
-                          <th
-                            key={h}
-                            style={{
-                              textAlign: h === "Launcher" || h === "Notes" ? "left" : "right",
-                              padding: "6px 8px",
-                              borderBottom: "1px solid var(--color-border, #ddd)",
-                            }}
-                          >
-                            {h}
-                          </th>
-                        ),
-                      )}
+                      {headers.map((h, i) => (
+                        <th
+                          key={h}
+                          style={{
+                            textAlign: i === 0 || i === 4 ? "left" : "right",
+                            padding: "6px 8px",
+                            borderBottom: "1px solid var(--color-border, #ddd)",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
@@ -95,10 +92,11 @@ export function AboutPage() {
                               textAlign: i === 0 || i === 4 ? "left" : "right",
                               padding: "6px 8px",
                               borderBottom: "1px solid var(--color-border, #eee)",
-                              fontWeight: row[0].startsWith("Northstar") && i === 0 ? 600 : undefined,
+                              fontWeight:
+                                row[0].startsWith("Northstar") && i === 0 ? 600 : undefined,
                             }}
                           >
-                            {cell}
+                            {cell === "pcl" ? t("aboutNotePcl") : cell}
                           </td>
                         ))}
                       </tr>
@@ -106,34 +104,29 @@ export function AboutPage() {
                   </tbody>
                 </table>
               </div>
-              <Text color="secondary">
-                After WebKit compositor/DMABUF defaults and frontend lazy-loading, Northstar idle
-                private bytes (~100 MiB) undercut HMCL; Working Set still trails Qt (Prism/MultiMC)
-                because of the WebView process model. With vanilla <strong>1.21.11</strong>, the
-                game dominates totals (~1.5–1.7 GiB). See BENCHMARKS.md.
-              </Text>
+              <Text color="secondary">{t("aboutResOutro")}</Text>
             </VStack>
           </Card>
 
           <Banner
             status="warning"
-            title="Unofficial software"
-            description="Not an official Minecraft product. Not approved by or associated with Mojang Studios or Microsoft."
+            title={t("aboutUnofficialTitle")}
+            description={t("aboutUnofficialBody")}
           />
 
           <div className="ns-cta-row">
             <Button
-              label="GitHub"
+              label={t("aboutBtnGithub")}
               variant="secondary"
               onClick={() => {
                 window.location.href = REPO;
               }}
             />
             <Button
-              label="Changelog"
+              label={t("aboutBtnChangelog")}
               variant="secondary"
               onClick={() => {
-                window.location.href = CHANGELOG;
+                window.location.href = CHANGELOG_FILE;
               }}
             />
           </div>

@@ -5,34 +5,35 @@ import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
 import { SiteFooter } from "../components/SiteFooter";
 import { TopNav } from "../components/TopNav";
+import { useI18n } from "../i18n";
 import { LICENSE_RAW, LICENSE_TEXT } from "../lib/site";
 
 export function LicensePage() {
+  const { t } = useI18n();
+
   return (
     <div className="ns-site">
       <TopNav />
       <main className="ns-page-pad">
         <VStack gap={4}>
           <VStack gap={2}>
-            <Text type="display-3">License</Text>
-            <Text color="secondary">
-              All rights reserved — ownership, branding, third-party deps, and Minecraft trademark
-              notices.
-            </Text>
+            <Text type="display-3">{t("licenseTitle")}</Text>
+            <Text color="secondary">{t("licenseLead")}</Text>
           </VStack>
 
           <Banner
             status="error"
-            title="All rights reserved"
-            description="No open-source license is granted. Viewing the repository does not give rights to copy, modify, redistribute, or rebrand Northstar."
+            title={t("licenseBannerTitle")}
+            description={t("licenseBannerBody")}
           />
 
           <Card padding={4}>
             <VStack gap={2}>
-              <Text weight="semibold">LICENSE</Text>
+              <Text weight="semibold">{t("licenseDocTitle")}</Text>
               <pre className="ns-license-block">{LICENSE_TEXT}</pre>
+              <Text color="secondary">{t("licenseBindingNote")}</Text>
               <Button
-                label="View on GitHub"
+                label={t("licenseViewGithub")}
                 variant="secondary"
                 onClick={() => {
                   window.location.href = LICENSE_RAW;
@@ -43,21 +44,15 @@ export function LicensePage() {
 
           <Card padding={4}>
             <VStack gap={2}>
-              <Text weight="semibold">Branding</Text>
-              <Text color="secondary">
-                The Northstar name and installer branding are reserved for official builds from this
-                repository (same idea as MultiMC’s branding reservation).
-              </Text>
+              <Text weight="semibold">{t("licenseBrandingTitle")}</Text>
+              <Text color="secondary">{t("licenseBrandingBody")}</Text>
             </VStack>
           </Card>
 
           <Card padding={4}>
             <VStack gap={2}>
-              <Text weight="semibold">Third-party & Minecraft</Text>
-              <Text color="secondary">
-                Dependencies keep their own licenses. Minecraft is a trademark of Mojang Synergies
-                AB; you need a legitimate game copy to play.
-              </Text>
+              <Text weight="semibold">{t("licenseThirdTitle")}</Text>
+              <Text color="secondary">{t("licenseThirdBody")}</Text>
             </VStack>
           </Card>
         </VStack>

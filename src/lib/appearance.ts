@@ -6,6 +6,10 @@ const BASE_FONT_PX = 16;
 const FONT_STACKS: Record<string, string> = {
   system:
     'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  "source-han-sans":
+    '"Noto Sans SC", "Noto Sans", "Source Han Sans SC", "Source Han Sans", system-ui, sans-serif',
+  "source-han-serif":
+    '"Noto Serif SC", "Noto Serif", "Source Han Serif SC", "Source Han Serif", serif',
   noto: '"Noto Sans SC", "Noto Sans", system-ui, sans-serif',
   source: '"Source Sans 3", "Source Sans Pro", system-ui, sans-serif',
   plex: '"IBM Plex Sans", system-ui, sans-serif',
@@ -58,8 +62,8 @@ export function applyAppearance(
     document.body.style.backgroundAttachment = "";
   }
 
-  const fontKey = settings?.font_family?.trim() || "system";
-  const stack = FONT_STACKS[fontKey] ?? FONT_STACKS.system;
+  const fontKey = settings?.font_family?.trim() || "source-han-sans";
+  const stack = FONT_STACKS[fontKey] ?? FONT_STACKS["source-han-sans"];
   root.style.setProperty("--font-family-body", stack);
   document.body.style.fontFamily = stack;
 

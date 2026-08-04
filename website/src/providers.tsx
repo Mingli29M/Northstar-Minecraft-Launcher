@@ -4,6 +4,7 @@ import { Theme } from "@astryxdesign/core/theme";
 import { LinkProvider } from "@astryxdesign/core/Link";
 import { LayerProvider } from "@astryxdesign/core/Layer";
 import { neutralTheme } from "@astryxdesign/theme-neutral";
+import { I18nProvider } from "./i18n";
 
 function RRLink({
   href,
@@ -32,7 +33,9 @@ export function Providers({ children }: { children: ReactNode }) {
     <BrowserRouter basename="/Northstar-Minecraft-Launcher">
       <Theme theme={neutralTheme}>
         <LinkProvider component={RRLink}>
-          <LayerProvider>{children}</LayerProvider>
+          <LayerProvider>
+            <I18nProvider>{children}</I18nProvider>
+          </LayerProvider>
         </LinkProvider>
       </Theme>
     </BrowserRouter>
