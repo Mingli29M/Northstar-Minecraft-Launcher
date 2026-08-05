@@ -64,6 +64,8 @@ export function VersionsPage() {
   const [worldForDp, setWorldForDp] = useState("");
   const [scan, setScan] = useState<ReqScanResult | null>(null);
   const [scanBusy, setScanBusy] = useState(false);
+  const [fixBusy, setFixBusy] = useState(false);
+  const [fixError, setFixError] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [creating, setCreating] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -174,12 +176,39 @@ export function VersionsPage() {
   }, [selected, tab, worldForDp]);
 
   async function rerunReqguard() {
-    if (!selected || scanBusy) return;
+    if (!selected || scanBusy || fixBusy) return;
     setScanBusy(true);
+    setFixError(null);
     try {
       setScan(await api.reqguardScan(selected.id));
     } finally {
       setScanBusy(false);
+    }
+  }
+
+  async function fixMissing(missingModId: string, projectId?: string | null) {
+    if (!selected || fixBusy) return;
+    setFixBusy(true);
+    setFixError(null);
+    try {
+      setScan(await api.reqguardResolve(selected.id, missingModId, projectId));
+    } catch (e) {
+      setFixError(String(e));
+    } finally {
+      setFixBusy(false);
+    }
+  }
+
+  async function fixAllMissing() {
+    if (!selected || fixBusy) return;
+    setFixBusy(true);
+    setFixError(null);
+    try {
+      setScan(await api.reqguardResolveAll(selected.id));
+    } catch (e) {
+      setFixError(String(e));
+    } finally {
+      setFixBusy(false);
     }
   }
 
@@ -1159,24 +1188,44 @@ export function VersionsPage() {
                 <HStack gap={2} style={{ flexWrap: "wrap" }}>
                   <Button
                     label={t("rerunReqguard")}
-                    isDisabled={scanBusy}
+                    isDisabled={scanBusy || fixBusy}
                     onClick={() => void rerunReqguard()}
                   />
                   {scan && scan.issues.some((i) => i.severity === "error") && (
                     <Button
                       label={t("installAllMissing")}
                       variant="primary"
-                      onClick={async () => setScan(await api.reqguardResolveAll(selected.id))}
+                      isDisabled={scanBusy || fixBusy}
+                      onClick={() => void fixAllMissing()}
                     />
                   )}
                 </HStack>
-                {scanBusy && (
+                {(scanBusy || fixBusy) && (
                   <HStack gap={2} align="center" style={{ marginTop: 12 }}>
                     <Spinner size="sm" />
-                    <Text color="secondary" type="supporting">{t("reqguardScanning")}</Text>
+                    <Text color="secondary" type="supporting">
+                      {fixBusy ? t("installingMissing") : t("reqguardScanning")}
+                    </Text>
                   </HStack>
                 )}
+                {fixError && (
+                  <DismissibleBanner
+                    status="error"
+                    title={fixError}
+                    onDismiss={() => setFixError(null)}
+                  />
+                )}
                 <VStack gap={2} style={{ marginTop: 12 }}>
+                  {scan &&
+                    !scanBusy &&
+                    !fixBusy &&
+                    !scan.local_scan &&
+                    !scan.deep_scan &&
+                    scan.issues.length === 0 && (
+                      <Text color="secondary" type="supporting">
+                        {t("reqguardModesIdle")}
+                      </Text>
+                    )}
                   {scan?.issues.map((issue, i) => (
                     <VStack key={i} gap={1}>
                       <Text type="supporting">
@@ -1187,22 +1236,23 @@ export function VersionsPage() {
                         <Button
                           size="sm"
                           variant="secondary"
-                          label={`${t("installMissing")}: ${issue.project_id || issue.missing_mod_id}`}
-                          onClick={async () =>
-                            setScan(
-                              await api.reqguardResolve(
-                                selected.id,
-                                issue.project_id || issue.missing_mod_id!,
-                              ),
+                          isDisabled={scanBusy || fixBusy}
+                          label={`${t("installMissing")}: ${issue.missing_mod_id || issue.project_id}`}
+                          onClick={() =>
+                            void fixMissing(
+                              issue.missing_mod_id || issue.project_id!,
+                              issue.project_id,
                             )
                           }
                         />
                       )}
                     </VStack>
                   ))}
-                  {scan && scan.issues.length === 0 && (
-                    <Text color="accent">{t("reqguardOk", { count: scan.mod_count })}</Text>
-                  )}
+                  {scan &&
+                    scan.issues.length === 0 &&
+                    (scan.local_scan || scan.deep_scan) && (
+                      <Text color="accent">{t("reqguardOk", { count: scan.mod_count })}</Text>
+                    )}
                 </VStack>
               </Card>
             )}

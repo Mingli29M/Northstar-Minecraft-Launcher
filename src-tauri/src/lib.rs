@@ -456,27 +456,19 @@ fn export_mrpack(instance_id: String, dest_path: String) -> Result<String, Strin
 
 #[tauri::command]
 async fn reqguard_scan(instance_id: String) -> Result<models::ReqScanResult, String> {
-    let deep = paths::load_settings()?
-        .reqguard_deep_validation
-        .unwrap_or(true);
-    tauri::async_runtime::spawn_blocking(move || {
-        if deep {
-            reqguard::scan_instance_deep(&instance_id)
-        } else {
-            reqguard::scan_instance(&instance_id)
-        }
-    })
-    .await
-    .map_err(|e| format!("ReqGuard worker failed: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || reqguard::scan_configured(&instance_id))
+        .await
+        .map_err(|e| format!("ReqGuard worker failed: {e}"))?
 }
 
 #[tauri::command]
 async fn reqguard_resolve(
     instance_id: String,
     missing_mod_id: String,
+    project_id: Option<String>,
 ) -> Result<models::ReqScanResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        reqguard::resolve_missing(instance_id, missing_mod_id)
+        reqguard::resolve_missing(instance_id, missing_mod_id, project_id)
     })
     .await
     .map_err(|e| format!("ReqGuard worker failed: {e}"))?

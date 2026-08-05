@@ -287,6 +287,9 @@ pub struct LauncherSettings {
     /// Run network-backed Modrinth validation during UI ReqGuard scans.
     #[serde(default)]
     pub reqguard_deep_validation: Option<bool>,
+    /// Experimental: emit issues from local jar metadata (unstable; off by default).
+    #[serde(default)]
+    pub reqguard_local_scan: Option<bool>,
 }
 
 impl Default for LauncherSettings {
@@ -309,6 +312,7 @@ impl Default for LauncherSettings {
             auto_backup_worlds: Some(false),
             auto_backup_keep: Some(5),
             reqguard_deep_validation: Some(true),
+            reqguard_local_scan: Some(false),
         }
     }
 }
@@ -376,6 +380,8 @@ pub struct ReqScanResult {
     pub issues: Vec<ReqIssue>,
     pub mod_count: usize,
     pub scanned_at: String,
+    #[serde(default)]
+    pub local_scan: bool,
     #[serde(default)]
     pub deep_scan: bool,
     #[serde(default)]

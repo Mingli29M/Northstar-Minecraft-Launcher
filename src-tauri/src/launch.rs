@@ -314,27 +314,34 @@ pub fn launch_instance(
     let mut inst = get_instance(&id)?;
 
     if !req_override {
-        let scan = reqguard::scan_instance(&id)?;
-        let hard = scan
-            .issues
-            .iter()
-            .any(|i| matches!(i.severity, crate::models::IssueSeverity::Error));
-        if hard {
-            let count = scan
+        // Launch gate uses the experimental local metadata scan only when enabled.
+        // Deep Modrinth SoT stays in the UI worker and never blocks Play.
+        let local_enabled = crate::paths::load_settings()
+            .map(|s| s.reqguard_local_scan.unwrap_or(false))
+            .unwrap_or(false);
+        if local_enabled {
+            let scan = reqguard::scan_instance(&id)?;
+            let hard = scan
                 .issues
                 .iter()
-                .filter(|i| matches!(i.severity, crate::models::IssueSeverity::Error))
-                .count();
-            for issue in scan.issues.iter().filter(|i| {
-                matches!(i.severity, crate::models::IssueSeverity::Error)
-            }) {
-                crate::console_log::append(Some(&app), issue.message.clone(), "error");
+                .any(|i| matches!(i.severity, crate::models::IssueSeverity::Error));
+            if hard {
+                let count = scan
+                    .issues
+                    .iter()
+                    .filter(|i| matches!(i.severity, crate::models::IssueSeverity::Error))
+                    .count();
+                for issue in scan.issues.iter().filter(|i| {
+                    matches!(i.severity, crate::models::IssueSeverity::Error)
+                }) {
+                    crate::console_log::append(Some(&app), issue.message.clone(), "error");
+                }
+                let msg = format!(
+                    "ReqGuard blocked launch: {count} error(s). Enable “Override ReqGuard” to force start, or fix dependencies."
+                );
+                crate::console_log::append(Some(&app), msg.clone(), "error");
+                return Err(msg);
             }
-            let msg = format!(
-                "ReqGuard blocked launch: {count} error(s). Enable “Override ReqGuard” to force start, or fix dependencies."
-            );
-            crate::console_log::append(Some(&app), msg.clone(), "error");
-            return Err(msg);
         }
     }
 

@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 use zip::ZipArchive;
 
 pub fn detect_java_installs() -> Result<Vec<String>, String> {
-    let mut found = Vec::new();
+    let mut found: Vec<String> = Vec::new();
     #[cfg(target_os = "windows")]
     {
         let candidates = [

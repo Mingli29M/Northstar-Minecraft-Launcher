@@ -1,6 +1,6 @@
 /** Embedded launcher changelog shown in Settings ??About. */
 
-export const APP_VERSION = "1.2.1";
+export const APP_VERSION = "1.2.2";
 
 export type ChangelogSection = {
   title: string;
@@ -16,6 +16,21 @@ export type ChangelogEntry = {
 };
 
 export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.2.2",
+    date: "2026-08-05",
+    summary: "ReqGuard install-button fixes and experimental local metadata scan toggle.",
+    sections: [
+      {
+        title: "ReqGuard",
+        items: [
+          "Install / Install-all buttons report errors and re-scan with the active Settings modes",
+          "Install-all uses deep Modrinth SoT issues instead of a local-only pass",
+          "Local metadata scan is Experimental and off by default; Play is gated only when it is enabled",
+        ],
+      },
+    ],
+  },
   {
     version: "1.2.1",
     date: "2026-08-05",
