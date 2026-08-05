@@ -1,4 +1,5 @@
 mod auth;
+mod avatars;
 mod config_editor;
 mod console_log;
 mod content;
@@ -164,6 +165,15 @@ fn add_offline_account(username: String) -> Result<Vec<models::Account>, String>
 #[tauri::command]
 fn add_littleskin_account(email: String, password: String) -> Result<Vec<models::Account>, String> {
     auth::add_littleskin_account(email, password)
+}
+
+#[tauri::command]
+fn resolve_account_avatar(
+    kind: String,
+    uuid: String,
+    username: String,
+) -> Result<Option<String>, String> {
+    avatars::resolve_account_avatar(kind, uuid, username)
 }
 
 #[tauri::command]
@@ -867,6 +877,7 @@ pub fn run() {
             poll_ms_login,
             add_offline_account,
             add_littleskin_account,
+            resolve_account_avatar,
             select_account,
             remove_account,
             list_game_versions,

@@ -40,6 +40,7 @@ fastnbt = "2.6.2"
 flate2 = "1"
 igd = "0.12"
 crab_nat = "0.8"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0.2"

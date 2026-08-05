@@ -1,4 +1,4 @@
-import type { Account, DedicatedLoader, LoaderKind } from "./types";
+import type { DedicatedLoader, LoaderKind } from "./types";
 import vanillaIcon from "../assets/loaders/vanilla.png";
 import fabricIcon from "../assets/loaders/fabric.png";
 import quiltIcon from "../assets/loaders/quilt.png";
@@ -6,18 +6,6 @@ import forgeIcon from "../assets/loaders/forge.png";
 import neoforgeIcon from "../assets/loaders/neoforge.svg";
 import paperIcon from "../assets/loaders/paper.svg";
 import purpurIcon from "../assets/loaders/purpur.svg";
-
-/** Player head / skin preview URL for an account. */
-export function accountAvatarUrl(account: Account): string | null {
-  const uuid = account.uuid?.replace(/-/g, "") ?? "";
-  if (account.kind === "littleskin") {
-    return `https://littleskin.cn/avatar/player/${encodeURIComponent(account.username)}`;
-  }
-  if (account.kind === "microsoft" && uuid && !/^0+$/.test(uuid)) {
-    return `https://crafatar.com/avatars/${uuid}?overlay=true&size=64`;
-  }
-  return null;
-}
 
 /** Bundled loader mark (asset URL). Order preference: Fabric, Vanilla, Quilt, Forge. */
 export function loaderIconSrc(loader: LoaderKind | DedicatedLoader | string): string {

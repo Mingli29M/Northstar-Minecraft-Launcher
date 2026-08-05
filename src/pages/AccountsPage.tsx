@@ -8,7 +8,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import { HStack } from "@astryxdesign/core/HStack";
 import { api } from "../lib/api";
-import { accountAvatarUrl } from "../lib/avatars";
+import { AccountAvatar } from "../components/AccountAvatar";
 import { useI18n } from "../i18n";
 import type { Account } from "../lib/types";
 
@@ -143,7 +143,6 @@ export function AccountsPage() {
 
       <Card padding={0}>
         {accounts.map((a) => {
-          const avatar = accountAvatarUrl(a);
           return (
             <HStack
               key={a.id}
@@ -152,13 +151,7 @@ export function AccountsPage() {
               style={{ padding: "12px 14px", borderBottom: "1px solid var(--color-border)" }}
               gap={3}
             >
-              {avatar ? (
-                <img src={avatar} alt="" className="euml-avatar" loading="lazy" />
-              ) : (
-                <div className="euml-avatar" style={{ display: "grid", placeItems: "center", fontSize: 12 }}>
-                  {a.username.slice(0, 2).toUpperCase()}
-                </div>
-              )}
+              <AccountAvatar account={a} />
               <VStack gap={0.5} style={{ flex: 1, minWidth: 0 }}>
                 <Text weight="semibold">
                   {a.username} {a.active ? `(${t("active")})` : ""}

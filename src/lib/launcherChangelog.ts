@@ -35,6 +35,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
         items: [
           "Appearance settings apply correctly — accent, wallpaper, font, UI scale, and panel opacity now target Astryx theme scopes so cards and text update",
           "Download / Servers Target version defaults to the instance selected on Launch and stays in sync",
+          "Player head icons load reliably — fetched and cached in Rust (Crafthead / MC-Heads / Mojang+BMCLAPI) instead of Crafatar in the WebView",
         ],
       },
       {

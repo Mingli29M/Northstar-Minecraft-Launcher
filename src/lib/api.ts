@@ -106,6 +106,9 @@ export const api = {
     invoke<Account[]>("add_littleskin_account", { email, password }).then(bumpAccounts),
   selectAccount: (id: string) => invoke<Account[]>("select_account", { id }).then(bumpAccounts),
   removeAccount: (id: string) => invoke<Account[]>("remove_account", { id }).then(bumpAccounts),
+  /** Cached player-head data URL (fetched in Rust; works when CDN is blocked in the WebView). */
+  resolveAccountAvatar: (kind: string, uuid: string, username: string) =>
+    invoke<string | null>("resolve_account_avatar", { kind, uuid, username }),
 
   listVersions: () => invoke<string[]>("list_game_versions"),
   listVersionsDetailed: () =>

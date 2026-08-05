@@ -11,7 +11,8 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { VStack } from "@astryxdesign/core/VStack";
 import { HStack } from "@astryxdesign/core/HStack";
 import { api } from "../lib/api";
-import { accountAvatarUrl, loaderIconSrc } from "../lib/avatars";
+import { AccountAvatar } from "../components/AccountAvatar";
+import { loaderIconSrc } from "../lib/avatars";
 import { effectiveLoader } from "../lib/loaderDetect";
 import { useFavorites } from "../lib/favorites";
 import { FavoriteButton } from "../components/FavoriteButton";
@@ -191,14 +192,7 @@ export function LaunchPage() {
         <HStack justify="between" align="center" gap={4}>
           <Text type="display-3">{t("launchTitle")}</Text>
           <HStack gap={2} align="center">
-            {activeAccount &&
-              (accountAvatarUrl(activeAccount) ? (
-                <img src={accountAvatarUrl(activeAccount)!} alt="" className="euml-avatar euml-avatar--sm" />
-              ) : (
-                <div className="euml-avatar euml-avatar--sm" style={{ display: "grid", placeItems: "center", fontSize: 10 }}>
-                  {activeAccount.username.slice(0, 2).toUpperCase()}
-                </div>
-              ))}
+            {activeAccount && <AccountAvatar account={activeAccount} sizeHint="sm" />}
             <Text color="secondary" type="body">
               {activeAccount ? (
                 <>

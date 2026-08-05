@@ -16,6 +16,7 @@ Settings sections, license/changelog in About, panel opacity, loader icons, and 
 ### Bug fixes
 - **Appearance settings apply correctly** — accent, wallpaper, font, UI scale, and panel opacity now target Astryx theme scopes (`[data-astryx-theme]`), so cards and text actually update
 - Download / Servers “Target version” defaults to the instance selected on Launch (and stays in sync when changed)
+- **Player head icons load reliably** — fetched/cached in the Rust backend (Crafthead / MC-Heads / Mojang+BMCLAPI skin crop) instead of loading Crafatar directly in the WebView
 
 ### Appearance
 - Panel opacity (“画面透明度”) makes every card surface translucent over wallpaper (no OS acrylic)
