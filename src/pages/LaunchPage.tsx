@@ -15,6 +15,7 @@ import { accountAvatarUrl, loaderIconSrc } from "../lib/avatars";
 import { effectiveLoader } from "../lib/loaderDetect";
 import { useFavorites } from "../lib/favorites";
 import { FavoriteButton } from "../components/FavoriteButton";
+import { preferredInstanceId, rememberPreferredInstance } from "../lib/preferredInstance";
 import { favoriteId } from "../lib/types";
 import { useI18n } from "../i18n";
 import type { Account, CrashHint, Instance, InstanceFolder, LauncherSettings, ReqScanResult } from "../lib/types";
@@ -107,9 +108,7 @@ export function LaunchPage() {
       setFolders(folderList);
       setAccounts(acc);
       setSettings(st);
-      setSelectedId(
-        st.last_instance_id && list.some((i) => i.id === st.last_instance_id) ? st.last_instance_id : list[0]?.id ?? "",
-      );
+      setSelectedId(preferredInstanceId(list, st));
     })().catch((e) => {
       if (!cancelled) setError(String(e));
     });
@@ -117,6 +116,17 @@ export function LaunchPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    void rememberPreferredInstance(selectedId).then(() => {
+      setSettings((prev) =>
+        prev && prev.last_instance_id !== selectedId
+          ? { ...prev, last_instance_id: selectedId }
+          : prev,
+      );
+    });
+  }, [selectedId]);
 
   useEffect(() => {
     if (!selected) {

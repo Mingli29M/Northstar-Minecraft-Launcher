@@ -20,7 +20,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
     version: "1.1.2",
     date: "2026-08-05",
     summary:
-      "Settings split into sections with License and full Changelog, semi-transparent panels, and real loader icons.",
+      "Settings sections, Appearance bug fix, shared target version across Launch/Download/Servers, panel opacity, and loader icons.",
     sections: [
       {
         title: "Settings",
@@ -28,6 +28,13 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
           "Settings organized into General, Appearance, Java, Backups, and About sections",
           "About includes All Rights Reserved license summary plus the full launcher changelog",
           "Backups section exposes auto-backup toggles (snapshots take effect in 1.2.0+)",
+        ],
+      },
+      {
+        title: "Bug fixes",
+        items: [
+          "Appearance settings apply correctly — accent, wallpaper, font, UI scale, and panel opacity now win over theme roots (live preview + after save)",
+          "Download / Servers Target version defaults to the instance selected on Launch and stays in sync",
         ],
       },
       {

@@ -18,6 +18,7 @@ import { api } from "../lib/api";
 import { normalizeMcVersion } from "../lib/mcVersion";
 import { effectiveLoader } from "../lib/loaderDetect";
 import { useFavorites } from "../lib/favorites";
+import { loadPreferredInstanceId, rememberPreferredInstance } from "../lib/preferredInstance";
 import { favoriteId } from "../lib/types";
 import { useI18n } from "../i18n";
 import type { Instance, LoaderKind, ModrinthHit, ModrinthProjectType, VersionInfo } from "../lib/types";
@@ -95,14 +96,17 @@ export function DownloadPage() {
   useEffect(() => {
     let cancelled = false;
     let instanceReady = false;
-    api.listInstances().then((list) => {
+    void loadPreferredInstanceId().then(({ instances: list, instanceId }) => {
       if (cancelled) return;
       instanceReady = true;
       setInstances(list);
-      if (list[0]) {
-        setTargetInstance(list[0].id);
-        setSearchVersion(normalizeMcVersion(list[0].game_version));
-        setSearchLoader(effectiveLoader(list[0]));
+      if (instanceId) {
+        setTargetInstance(instanceId);
+        const inst = list.find((i) => i.id === instanceId) ?? list[0];
+        if (inst) {
+          setSearchVersion(normalizeMcVersion(inst.game_version));
+          setSearchLoader(effectiveLoader(inst));
+        }
       }
     });
     api
@@ -135,6 +139,7 @@ export function DownloadPage() {
     if (!inst) return;
     setSearchVersion(normalizeMcVersion(inst.game_version));
     setSearchLoader(effectiveLoader(inst));
+    void rememberPreferredInstance(targetInstance);
   }, [targetInstance, instances]);
 
   useEffect(() => {

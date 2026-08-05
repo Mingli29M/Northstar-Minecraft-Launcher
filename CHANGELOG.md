@@ -6,12 +6,16 @@ Launcher release notes for the desktop app (Tauri). Website marketing changes li
 
 ## 1.1.2 — 2026-08-05
 
-Settings sections, license/changelog in About, panel opacity, and real loader icons.
+Settings sections, license/changelog in About, panel opacity, loader icons, and shared target-version selection.
 
 ### Settings
 - Settings organized into General, Appearance, Java, Backups, and About sections
 - About includes All Rights Reserved license summary plus the full launcher changelog
 - Backups section exposes auto-backup toggles (snapshots take effect in 1.2.0+)
+
+### Bug fixes
+- **Appearance settings apply correctly** — accent, wallpaper, font, UI scale, and panel opacity now win over the Astryx theme roots (live preview + after save)
+- Download / Servers “Target version” defaults to the instance selected on Launch (and stays in sync when changed)
 
 ### Appearance
 - Panel opacity slider for semi-transparent cards over wallpaper (no OS acrylic)
