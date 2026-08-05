@@ -1020,11 +1020,47 @@ a.ns-connect-link:hover {
   margin: 0 0 0.5rem;
 }
 
+.ns-changelog-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(1.5rem, 4vw, 2.75rem);
+  margin-top: 1.75rem;
+  align-items: start;
+}
+
+.ns-changelog-col {
+  min-width: 0;
+}
+
+.ns-changelog-col-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  margin-bottom: 0.35rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--ns-line);
+}
+
+.ns-changelog-col-head h2 {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.ns-changelog-col-head a {
+  font-size: 0.9rem;
+  color: var(--ns-muted);
+}
+
 .ns-changelog {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  margin-top: 1.5rem;
+  margin-top: 1.25rem;
 }
 
 .ns-changelog-entry {
@@ -1046,9 +1082,9 @@ a.ns-connect-link:hover {
   margin-bottom: 0.5rem;
 }
 
-.ns-changelog-head h2 {
+.ns-changelog-head h3 {
   font-family: var(--font-display);
-  font-size: 1.35rem;
+  font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   margin: 0;
@@ -1065,7 +1101,7 @@ a.ns-connect-link:hover {
   line-height: 1.5;
 }
 
-.ns-changelog-section h3 {
+.ns-changelog-section h4 {
   font-size: 0.95rem;
   font-weight: 600;
   margin: 0 0 0.35rem;
@@ -1127,6 +1163,10 @@ a.ns-connect-link:hover {
 
   .ns-footer-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ns-changelog-split {
+    grid-template-columns: 1fr;
   }
 }
 

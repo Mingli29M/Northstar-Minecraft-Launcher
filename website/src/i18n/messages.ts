@@ -163,33 +163,66 @@ const en = {
     "Dependencies keep their own licenses. Minecraft is a trademark of Mojang Synergies AB; you need a legitimate game copy to play.",
   licenseBindingNote: "The binding legal text is English.",
 
-  changelogTitle: "Website changelog",
-  changelogLeadBefore: "What’s new on the Northstar site",
+  changelogTitle: "Changelog",
+  changelogLeadBefore: "What’s new in Northstar",
   changelogLeadAfter:
-    ". Launcher notes are separate in the root CHANGELOG.md. Full website history also lives in the repository",
+    ". Website and launcher notes are split into two columns below, and live as separate files in the repository.",
   changelogCurrent: "Current: v{version}",
   changelogBannerBody:
-    "This page lists marketing-site changes only. Desktop launcher notes are in the root CHANGELOG.md. Installers ship from GitHub Releases.",
-  changelogViewMd: "View website/CHANGELOG.md",
+    "Website and launcher changelogs are shown side by side. Installers ship from GitHub Releases.",
+  changelogColWebsite: "Website",
+  changelogColLauncher: "Launcher",
+  changelogViewWebsiteMd: "View website/CHANGELOG.md",
+  changelogViewLauncherMd: "View CHANGELOG.md",
 
-  cl111Summary:
-    "New geometric Northstar brand marks on the site; website and launcher changelogs split.",
+  cl111Summary: "New Northstar brand marks on the site; website and launcher changelogs split.",
   cl111Sec1: "Branding",
   cl111Sec1I1:
-    "Replaced nether-star UI marks and hero/background art with the new geometric Northstar star and overlay shard",
+    "Replaced nether-star UI marks and hero/background art with the new Northstar star and overlay shard",
   cl111Sec1I2: "Browser tab favicon (nether-star-16.png) left unchanged",
   cl111Sec2: "Docs",
   cl111Sec2I1:
-    "Website changelog moved to website/CHANGELOG.md; launcher notes stay in the root CHANGELOG.md",
+    "Website and launcher changelogs are separate files, shown together on this page",
 
-  cl110Summary: "Astryx marketing site launched on GitHub Pages.",
+  cl110Summary: "Marketing site launched on GitHub Pages.",
   cl110Sec1: "Website",
-  cl110Sec1I1: "Astryx landing page under website/ deployed via GitHub Pages",
-  cl110Sec1I2: "LM Studio–style layout: centered hero, frosted nav, merged capabilities",
+  cl110Sec1I1: "Landing page under website/ deployed via GitHub Pages",
+  cl110Sec1I2: "Centered hero, frosted nav, and merged capabilities sections",
 
   cl100Summary: "Initial public marketing site alongside the 1.0.0 launcher release.",
   cl100Sec1: "Website",
   cl100Sec1I1: "Initial public marketing site scaffolding",
+
+  lcl111Summary: "New Northstar app icons; launcher changelog split from the website file.",
+  lcl111Sec1: "Branding",
+  lcl111Sec1I1: "Replaced nether-star window/installer icons with the new Northstar mark",
+  lcl111Sec1I2: "Overlay shard mark for taller brand visuals",
+  lcl111Sec2: "Docs",
+  lcl111Sec2I1: "Launcher and website changelogs are separate files (CHANGELOG.md vs website/CHANGELOG.md)",
+
+  lcl110Summary: "Northstar display rebrand, appearance settings, and Host/network polish.",
+  lcl110Sec1: "Branding",
+  lcl110Sec1I1:
+    "User-facing product name is Northstar (data folder remains %APPDATA%\\euml for install stability)",
+  lcl110Sec1I2: "Window title, User-Agent, console titles, and Host MOTD/strings updated",
+  lcl110Sec2: "Appearance",
+  lcl110Sec2I1: "Settings → Appearance: accent color, background color/image, font family, UI scale",
+  lcl110Sec2I2: "Live CSS preview; persisted in settings.json",
+  lcl110Sec3: "Host & network",
+  lcl110Sec3I1: "UPnP → NAT-PMP → PCP port-map cascade with clearer join addresses",
+  lcl110Sec3I2: "Orphan Java reattach, port-in-use detection, and Host KeepAlive route fix",
+
+  lcl100Summary:
+    "First public release of Northstar — desktop Minecraft launcher with Host, Modrinth, and multi-account support.",
+  lcl100Sec1: "Highlights",
+  lcl100Sec1I1:
+    "Launch, versions/loaders, Modrinth, ReqGuard, Host, accounts (Microsoft / offline / LittleSkin)",
+  lcl100Sec1I2: "Native installers for Windows, macOS, and Linux via GitHub Actions",
+
+  lcl010Summary: "Internal preview that established the core launcher shell and CI publish path.",
+  lcl010Sec1: "Added",
+  lcl010Sec1I1: "Launch screen, news, Settings → About changelog",
+  lcl010Sec1I2: "ReqGuard, Modrinth, LittleSkin, multi-language scaffolding",
 };
 
 const zh: Record<MessageKey, string> = {
@@ -346,30 +379,59 @@ const zh: Record<MessageKey, string> = {
     "依赖库遵循各自许可。Minecraft 是 Mojang Synergies AB 的商标；游玩需拥有正版游戏。",
   licenseBindingNote: "具有约束力的法律文本以英文为准。",
 
-  changelogTitle: "网站更新日志",
-  changelogLeadBefore: "Northstar 网站",
-  changelogLeadAfter:
-    " 的新内容。启动器说明见根目录 CHANGELOG.md。完整网站历史亦见仓库",
+  changelogTitle: "更新日志",
+  changelogLeadBefore: "Northstar",
+  changelogLeadAfter: " 的新内容。网站与启动器说明分左右两栏，并在仓库中分文件维护。",
   changelogCurrent: "当前：v{version}",
-  changelogBannerBody:
-    "本页仅列出营销站变更。桌面启动器说明见根目录 CHANGELOG.md。安装包发布于 GitHub Releases。",
-  changelogViewMd: "查看 website/CHANGELOG.md",
+  changelogBannerBody: "网站与启动器更新日志并排显示。安装包发布于 GitHub Releases。",
+  changelogColWebsite: "网站",
+  changelogColLauncher: "启动器",
+  changelogViewWebsiteMd: "查看 website/CHANGELOG.md",
+  changelogViewLauncherMd: "查看 CHANGELOG.md",
 
-  cl111Summary: "网站换上新的几何 Northstar 品牌标识；网站与启动器更新日志拆分。",
+  cl111Summary: "网站换上新的 Northstar 品牌标识；网站与启动器更新日志拆分。",
   cl111Sec1: "品牌",
-  cl111Sec1I1: "下界之星 UI 标识与英雄/背景图替换为新的几何 Northstar 星标与叠加碎片",
+  cl111Sec1I1: "下界之星 UI 标识与英雄/背景图替换为新的 Northstar 星标与叠加碎片",
   cl111Sec1I2: "浏览器标签页图标（nether-star-16.png）保持不变",
   cl111Sec2: "文档",
-  cl111Sec2I1: "网站更新日志迁至 website/CHANGELOG.md；启动器说明仍在根目录 CHANGELOG.md",
+  cl111Sec2I1: "网站与启动器更新日志分文件维护，并在本页并排展示",
 
-  cl110Summary: "Astryx 营销站经 GitHub Pages 上线。",
+  cl110Summary: "营销站经 GitHub Pages 上线。",
   cl110Sec1: "网站",
-  cl110Sec1I1: "website/ 下的 Astryx 落地页，经 GitHub Pages 部署",
-  cl110Sec1I2: "LM Studio 风格布局：居中英雄区、磨砂导航、合并能力区",
+  cl110Sec1I1: "website/ 下的落地页，经 GitHub Pages 部署",
+  cl110Sec1I2: "居中英雄区、磨砂导航与合并的能力区",
 
   cl100Summary: "与 1.0.0 启动器发布同期的首个公开营销站。",
   cl100Sec1: "网站",
   cl100Sec1I1: "初始公开营销站脚手架",
+
+  lcl111Summary: "新的 Northstar 应用图标；启动器更新日志与网站文件拆分。",
+  lcl111Sec1: "品牌",
+  lcl111Sec1I1: "窗口/安装程序图标由下界之星替换为新的 Northstar 标识",
+  lcl111Sec1I2: "叠加碎片标识用于更高的品牌视觉",
+  lcl111Sec2: "文档",
+  lcl111Sec2I1: "启动器与网站更新日志分文件（CHANGELOG.md 与 website/CHANGELOG.md）",
+
+  lcl110Summary: "Northstar 品牌展示、外观设置与 Host/网络打磨。",
+  lcl110Sec1: "品牌",
+  lcl110Sec1I1: "面向用户的产品名为 Northstar（数据目录仍为 %APPDATA%\\euml，保证安装稳定）",
+  lcl110Sec1I2: "更新窗口标题、User-Agent、控制台标题与 Host MOTD/文案",
+  lcl110Sec2: "外观",
+  lcl110Sec2I1: "设置 → 外观：强调色、背景色/图、字体、界面缩放",
+  lcl110Sec2I2: "实时 CSS 预览；持久化到 settings.json",
+  lcl110Sec3: "Host 与网络",
+  lcl110Sec3I1: "UPnP → NAT-PMP → PCP 端口映射级联，更清晰的加入地址",
+  lcl110Sec3I2: "孤儿 Java 重连、端口占用检测、Host KeepAlive 路由修复",
+
+  lcl100Summary: "Northstar 首次公开发布 —— 桌面 Minecraft 启动器，含 Host、Modrinth 与多账户。",
+  lcl100Sec1: "亮点",
+  lcl100Sec1I1: "启动、版本/加载器、Modrinth、ReqGuard、Host、账户（微软 / 离线 / LittleSkin）",
+  lcl100Sec1I2: "经 GitHub Actions 提供 Windows、macOS、Linux 原生安装包",
+
+  lcl010Summary: "内部预览，奠定核心启动器外壳与 CI 发布路径。",
+  lcl010Sec1: "新增",
+  lcl010Sec1I1: "启动页、新闻、设置 → 关于中的更新日志",
+  lcl010Sec1I2: "ReqGuard、Modrinth、LittleSkin、多语言脚手架",
 };
 
 const de: Record<MessageKey, string> = {
@@ -537,33 +599,66 @@ const de: Record<MessageKey, string> = {
     "Abhängigkeiten behalten ihre Lizenzen. Minecraft ist eine Marke von Mojang Synergies AB; zum Spielen brauchst du eine legitime Kopie.",
   licenseBindingNote: "Der verbindliche Rechtstext ist Englisch.",
 
-  changelogTitle: "Website-Änderungsprotokoll",
-  changelogLeadBefore: "Was neu ist auf der Northstar-Website",
+  changelogTitle: "Änderungsprotokoll",
+  changelogLeadBefore: "Was neu ist in Northstar",
   changelogLeadAfter:
-    ". Launcher-Notizen stehen separat in der Root-CHANGELOG.md. Die vollständige Website-Historie steht auch im Repository",
+    ". Website- und Launcher-Notizen stehen unten in zwei Spalten und als getrennte Dateien im Repository.",
   changelogCurrent: "Aktuell: v{version}",
   changelogBannerBody:
-    "Diese Seite listet nur Marketing-Site-Änderungen. Desktop-Launcher-Notizen stehen in der Root-CHANGELOG.md. Installer kommen von GitHub Releases.",
-  changelogViewMd: "website/CHANGELOG.md ansehen",
+    "Website- und Launcher-Changelogs werden nebeneinander angezeigt. Installer kommen von GitHub Releases.",
+  changelogColWebsite: "Website",
+  changelogColLauncher: "Launcher",
+  changelogViewWebsiteMd: "website/CHANGELOG.md ansehen",
+  changelogViewLauncherMd: "CHANGELOG.md ansehen",
 
-  cl111Summary:
-    "Neue geometrische Northstar-Markenicons auf der Site; Website- und Launcher-Changelogs getrennt.",
+  cl111Summary: "Neue Northstar-Markenicons auf der Site; Website- und Launcher-Changelogs getrennt.",
   cl111Sec1: "Branding",
   cl111Sec1I1:
-    "Netherstern-UI-Marken und Hero-/Hintergrundgrafiken durch den neuen geometrischen Northstar-Stern und Overlay-Kristall ersetzt",
+    "Netherstern-UI-Marken und Hero-/Hintergrundgrafiken durch den neuen Northstar-Stern und Overlay-Kristall ersetzt",
   cl111Sec1I2: "Browser-Tab-Favicon (nether-star-16.png) unverändert gelassen",
   cl111Sec2: "Docs",
   cl111Sec2I1:
-    "Website-Changelog nach website/CHANGELOG.md verschoben; Launcher-Notizen bleiben in der Root-CHANGELOG.md",
+    "Website- und Launcher-Changelogs sind getrennte Dateien und werden hier gemeinsam angezeigt",
 
-  cl110Summary: "Astryx-Marketingseite über GitHub Pages gestartet.",
+  cl110Summary: "Marketingseite über GitHub Pages gestartet.",
   cl110Sec1: "Website",
-  cl110Sec1I1: "Astryx-Landing unter website/, bereitgestellt über GitHub Pages",
-  cl110Sec1I2: "LM-Studio-artiges Layout: zentrierter Hero, frosted Nav, zusammengeführte Capabilities",
+  cl110Sec1I1: "Landing unter website/, bereitgestellt über GitHub Pages",
+  cl110Sec1I2: "Zentrierter Hero, frosted Nav und zusammengeführte Capabilities",
 
   cl100Summary: "Erste öffentliche Marketingseite zusammen mit dem Launcher-Release 1.0.0.",
   cl100Sec1: "Website",
   cl100Sec1I1: "Initiales öffentliches Marketing-Site-Gerüst",
+
+  lcl111Summary: "Neue Northstar-App-Icons; Launcher-Changelog von der Website-Datei getrennt.",
+  lcl111Sec1: "Branding",
+  lcl111Sec1I1: "Netherstern-Fenster-/Installer-Icons durch das neue Northstar-Mark ersetzt",
+  lcl111Sec1I2: "Overlay-Kristall-Mark für höhere Markenvisuals",
+  lcl111Sec2: "Docs",
+  lcl111Sec2I1: "Launcher- und Website-Changelogs sind getrennte Dateien (CHANGELOG.md vs website/CHANGELOG.md)",
+
+  lcl110Summary: "Northstar-Anzeige-Rebrand, Erscheinungsbild-Einstellungen und Host-/Netzwerk-Politur.",
+  lcl110Sec1: "Branding",
+  lcl110Sec1I1:
+    "Nutzerseitiger Produktname Northstar (Datenordner bleibt %APPDATA%\\euml für Upgrade-Stabilität)",
+  lcl110Sec1I2: "Fenstertitel, User-Agent, Konsoltitel und Host-MOTD/Texte aktualisiert",
+  lcl110Sec2: "Erscheinungsbild",
+  lcl110Sec2I1: "Einstellungen → Erscheinungsbild: Akzent, Hintergrundfarbe/-bild, Schrift, UI-Skalierung",
+  lcl110Sec2I2: "Live-CSS-Vorschau; in settings.json gespeichert",
+  lcl110Sec3: "Host & Netzwerk",
+  lcl110Sec3I1: "UPnP → NAT-PMP → PCP Port-Map-Kaskade mit klareren Join-Adressen",
+  lcl110Sec3I2: "Verwaiste Java-Reconnects, Port-belegt-Erkennung, Host-KeepAlive-Routenfix",
+
+  lcl100Summary:
+    "Erste öffentliche Northstar-Veröffentlichung — Desktop-Minecraft-Launcher mit Host, Modrinth und Multi-Account.",
+  lcl100Sec1: "Highlights",
+  lcl100Sec1I1:
+    "Start, Versionen/Loader, Modrinth, ReqGuard, Host, Konten (Microsoft / Offline / LittleSkin)",
+  lcl100Sec1I2: "Native Installer für Windows, macOS und Linux über GitHub Actions",
+
+  lcl010Summary: "Interne Vorschau, die die Kern-Launcher-Shell und den CI-Publish-Pfad etablierte.",
+  lcl010Sec1: "Hinzugefügt",
+  lcl010Sec1I1: "Startbildschirm, News, Einstellungen → Über mit Changelog",
+  lcl010Sec1I2: "ReqGuard, Modrinth, LittleSkin, Mehrsprachen-Gerüst",
 };
 
 export const dictionaries = { en, zh, de } as const;

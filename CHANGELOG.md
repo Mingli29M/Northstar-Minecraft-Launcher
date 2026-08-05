@@ -1,16 +1,16 @@
 # Northstar Launcher Changelog
 
-Launcher release notes for the desktop app (Tauri). Website marketing changes live in [`website/CHANGELOG.md`](website/CHANGELOG.md).
+Launcher release notes for the desktop app (Tauri). Website marketing changes live in [`website/CHANGELOG.md`](website/CHANGELOG.md). Both are shown side by side on the site Changelog page.
 
-> **Split (1.1.1):** Launcher and website changelogs are maintained separately. This file covers the desktop launcher only.
+> **Split (1.1.1):** Launcher and website changelogs are maintained as separate files. This file covers the desktop launcher only.
 
 ## 1.1.1 — 2026-08-04
 
 Branding icons refreshed; changelog split from the marketing site.
 
 ### Branding
-- Replaced Minecraft-style nether-star app icons with the new geometric Northstar mark (window / installer icons)
-- Overlay shard mark used for brand visuals that need the taller “star with overlay” treatment
+- Replaced nether-star app icons with the new Northstar mark (window / installer icons)
+- Overlay shard mark used for taller brand visuals
 
 ### Docs
 - Launcher and website changelogs are now separate (`CHANGELOG.md` vs `website/CHANGELOG.md`)
@@ -36,7 +36,7 @@ Northstar display rebrand, appearance settings, and Host/network polish.
 First public release of Northstar.
 
 ### Launch experience
-- PCL/HMCL-style home screen with large Start button and quick version picker
+- Home screen with large Start button and quick version picker
 - Per-instance JVM arguments, memory sliders, and Java runtime detection
 - Offline and online account switching without leaving the Launch page
 - Live console stream while the game boots, with crash-log shortcuts
@@ -51,7 +51,7 @@ First public release of Northstar.
 - Browse, search, and install mods/modpacks from Modrinth inside the app
 - ReqGuard dependency scan before launch
 - Bulk mod update check with selective apply
-- Config editor with human-readable labels and Mod Menu–style section groups
+- Config editor with human-readable labels and grouped sections
 
 ### Multiplayer & hosting
 - Saved servers list with ping status and quick-join
@@ -78,10 +78,10 @@ First public release of Northstar.
 ## 0.1.0 — Preview — 2026-08-03
 
 ### Added
-- Launch screen with PCL/HMCL-style version selector and large Start button
+- Launch screen with version selector and large Start button
 - Minecraft news & patch notes (Java Edition) under News
 - Launcher About / changelog in Settings
-- Config editor with human-readable labels and Mod Menu–style sections
+- Config editor with human-readable labels and grouped sections
 - ReqGuard dependency scanning, Modrinth browse/install, LittleSkin accounts
 - Multi-language UI (English, 中文, Deutsch)
 
