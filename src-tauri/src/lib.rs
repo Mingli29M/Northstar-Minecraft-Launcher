@@ -7,6 +7,7 @@ mod dedicated;
 mod download;
 mod favorites;
 mod folders;
+mod hangar;
 mod host_files;
 mod host_process;
 mod host_stats;
@@ -918,6 +919,55 @@ async fn dedicated_download_mods(id: String, dest_path: String) -> Result<String
         .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+fn hangar_search_plugins(
+    query: String,
+    platform: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<hangar::HangarProject>, String> {
+    hangar::search_plugins(query, platform.unwrap_or_else(|| "PAPER".into()), limit.unwrap_or(24))
+}
+
+#[tauri::command]
+fn hangar_list_plugin_versions(
+    author: String,
+    slug: String,
+    platform: Option<String>,
+) -> Result<Vec<hangar::HangarVersion>, String> {
+    hangar::list_plugin_versions(author, slug, platform.unwrap_or_else(|| "PAPER".into()))
+}
+
+#[tauri::command]
+async fn hangar_install_plugin(
+    dedicated_id: String,
+    author: String,
+    slug: String,
+    version_or_latest: String,
+    platform: Option<String>,
+) -> Result<hangar::HostPluginEntry, String> {
+    let platform = platform.unwrap_or_else(|| "PAPER".into());
+    tokio::task::spawn_blocking(move || {
+        hangar::install_plugin(dedicated_id, author, slug, version_or_latest, platform)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn dedicated_list_plugins(id: String) -> Result<Vec<hangar::HostPluginEntry>, String> {
+    host_files::list_plugins(id)
+}
+
+#[tauri::command]
+fn dedicated_set_plugin_enabled(id: String, name: String, enabled: bool) -> Result<Vec<hangar::HostPluginEntry>, String> {
+    host_files::set_plugin_enabled(id, name, enabled)
+}
+
+#[tauri::command]
+fn dedicated_delete_plugin(id: String, name: String) -> Result<Vec<hangar::HostPluginEntry>, String> {
+    host_files::delete_plugin(id, name)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Launcher UI does not need accelerated WebKit compositing. On Linux (esp.
@@ -1056,6 +1106,12 @@ pub fn run() {
             dedicated_upload_mods,
             dedicated_download_world,
             dedicated_download_mods,
+            hangar_search_plugins,
+            hangar_list_plugin_versions,
+            hangar_install_plugin,
+            dedicated_list_plugins,
+            dedicated_set_plugin_enabled,
+            dedicated_delete_plugin,
             get_world_settings,
             save_world_settings,
             list_instance_configs,

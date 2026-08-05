@@ -32,6 +32,9 @@ import type {
   DedicatedPlayerLists,
   DedicatedNetworkInfo,
   HostLiveStats,
+  HangarProject,
+  HangarVersion,
+  HostPluginEntry,
 } from "./types";
 
 const INSTANCES = "instances";
@@ -369,6 +372,38 @@ export const api = {
     invoke<string>("dedicated_download_world", { id, destPath }),
   dedicatedDownloadMods: (id: string, destPath: string) =>
     invoke<string>("dedicated_download_mods", { id, destPath }),
+
+  hangarSearchPlugins: (query: string, platform?: string, limit?: number) =>
+    invoke<HangarProject[]>("hangar_search_plugins", {
+      query,
+      platform: platform ?? null,
+      limit: limit ?? null,
+    }),
+  hangarListPluginVersions: (author: string, slug: string, platform?: string) =>
+    invoke<HangarVersion[]>("hangar_list_plugin_versions", {
+      author,
+      slug,
+      platform: platform ?? null,
+    }),
+  hangarInstallPlugin: (
+    dedicatedId: string,
+    author: string,
+    slug: string,
+    versionOrLatest?: string,
+    platform?: string,
+  ) =>
+    invoke<HostPluginEntry>("hangar_install_plugin", {
+      dedicatedId,
+      author,
+      slug,
+      versionOrLatest: versionOrLatest ?? "latest",
+      platform: platform ?? null,
+    }),
+  dedicatedListPlugins: (id: string) => invoke<HostPluginEntry[]>("dedicated_list_plugins", { id }),
+  dedicatedSetPluginEnabled: (id: string, name: string, enabled: boolean) =>
+    invoke<HostPluginEntry[]>("dedicated_set_plugin_enabled", { id, name, enabled }),
+  dedicatedDeletePlugin: (id: string, name: string) =>
+    invoke<HostPluginEntry[]>("dedicated_delete_plugin", { id, name }),
 };
 
 export type { ModrinthHit };
