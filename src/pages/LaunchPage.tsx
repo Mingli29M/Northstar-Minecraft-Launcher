@@ -340,24 +340,53 @@ export function LaunchPage() {
           {selected && scan && scan.issues.length === 0 && (
             <Text color="accent">{t("reqguardOk", { count: scan.mod_count })}</Text>
           )}
-          {scan?.issues.slice(0, 5).map((issue, i) => (
+          {selected && scan && scan.issues.some((i) => i.severity === "error") && (
+            <Button
+              label={t("installAllMissing")}
+              size="sm"
+              variant="primary"
+              style={{ marginBottom: 8 }}
+              onClick={async () => setScan(await api.reqguardResolveAll(selected.id))}
+            />
+          )}
+          {scan?.issues.slice(0, 8).map((issue, i) => (
             <VStack key={i} gap={1} style={{ marginBottom: 8 }}>
-              <Text type="supporting">{issue.message}</Text>
-              {issue.missing_mod_id && selected && (
+              <Text type="supporting">
+                {issue.source ? `[${issue.source}] ` : ""}
+                {issue.message}
+              </Text>
+              {(issue.project_id || issue.missing_mod_id) && selected && (
                 <Button
-                  label={`${t("installMissing")}: ${issue.missing_mod_id}`}
+                  label={`${t("installMissing")}: ${issue.project_id || issue.missing_mod_id}`}
                   size="sm"
                   variant="secondary"
-                  onClick={async () => setScan(await api.reqguardResolve(selected.id, issue.missing_mod_id!))}
+                  onClick={async () =>
+                    setScan(
+                      await api.reqguardResolve(
+                        selected.id,
+                        issue.project_id || issue.missing_mod_id!,
+                      ),
+                    )
+                  }
                 />
               )}
             </VStack>
           ))}
         </Card>
         <Card padding={3}>
-          <Text weight="semibold" display="block" style={{ marginBottom: 8 }}>
-            {t("crashAnalysis")}
-          </Text>
+          <HStack justify="between" align="center" style={{ marginBottom: 8 }}>
+            <Text weight="semibold" display="block">
+              {t("crashAnalysis")}
+            </Text>
+            {selected && (
+              <Button
+                label={t("rerunReqguard")}
+                size="sm"
+                variant="secondary"
+                onClick={async () => setScan(await api.reqguardScan(selected.id))}
+              />
+            )}
+          </HStack>
           {crashes.length === 0 && <Text color="secondary">{t("crashNone")}</Text>}
           {crashes.map((c, i) => (
             <VStack key={i} gap={0.5} style={{ marginBottom: 8 }}>

@@ -359,6 +359,12 @@ pub struct ReqIssue {
     pub message: String,
     pub missing_mod_id: Option<String>,
     pub source_file: Option<String>,
+    /// `local` jar metadata or `modrinth` dependency SoT.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Modrinth project id when known (prefer for install over fuzzy search).
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -378,6 +384,29 @@ pub struct ContentItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldBackup {
+    pub name: String,
+    pub path: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldInfo {
+    pub name: String,
+    pub path: String,
+    pub backup_count: u32,
+    pub has_backups: bool,
+    #[serde(default)]
+    pub icon_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LitematicaInfo {
+    pub present: bool,
+    pub schematics_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogLine {
     pub text: String,
     pub level: String,
@@ -385,9 +414,26 @@ pub struct LogLine {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrashHint {
+    pub code: String,
     pub title: String,
     pub detail: String,
     pub severity: String,
+    #[serde(default)]
+    pub params: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JavaInstall {
+    pub path: String,
+    pub major: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JavaStatus {
+    pub required_major: u32,
+    pub detected: Vec<JavaInstall>,
+    pub satisfied: bool,
+    pub recommended_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

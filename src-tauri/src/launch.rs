@@ -337,6 +337,19 @@ pub fn launch_instance(
         }
     }
 
+    if let Ok(settings) = crate::paths::load_settings() {
+        if settings.auto_backup_worlds.unwrap_or(false) {
+            let keep = settings.auto_backup_keep.unwrap_or(5);
+            if let Err(e) = crate::content::auto_backup_all_worlds(&id, keep) {
+                crate::console_log::append(
+                    Some(&app),
+                    format!("Auto-backup warning: {e}"),
+                    "warn",
+                );
+            }
+        }
+    }
+
     let account = active_account()?.ok_or("No account. Add Microsoft, LittleSkin, or offline under Accounts.")?;
     let user_type = match account.kind {
         crate::models::AccountKind::Offline => "legacy",

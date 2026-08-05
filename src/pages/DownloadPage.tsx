@@ -21,7 +21,7 @@ import { useFavorites } from "../lib/favorites";
 import { loadPreferredInstanceId, rememberPreferredInstance } from "../lib/preferredInstance";
 import { favoriteId } from "../lib/types";
 import { useI18n } from "../i18n";
-import type { Instance, LoaderKind, ModrinthHit, ModrinthProjectType, VersionInfo } from "../lib/types";
+import type { Instance, JavaStatus, LoaderKind, ModrinthHit, ModrinthProjectType, VersionInfo } from "../lib/types";
 
 const LOADERS: LoaderKind[] = ["vanilla", "fabric", "quilt", "forge", "neoforge"];
 
@@ -77,6 +77,8 @@ export function DownloadPage() {
   const [instances, setInstances] = useState<Instance[]>([]);
   const [searching, setSearching] = useState(false);
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const [javaStatus, setJavaStatus] = useState<JavaStatus | null>(null);
+  const [javaBusy, setJavaBusy] = useState(false);
   const [, startTransition] = useTransition();
   const searchGen = useRef(0);
 
@@ -141,6 +143,18 @@ export function DownloadPage() {
     setSearchLoader(effectiveLoader(inst));
     void rememberPreferredInstance(targetInstance);
   }, [targetInstance, instances]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.javaStatus(normalizeMcVersion(gameVersion)).then((s) => {
+      if (!cancelled) setJavaStatus(s);
+    }).catch(() => {
+      if (!cancelled) setJavaStatus(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [gameVersion]);
 
   useEffect(() => {
     if (!targetInstance || tab !== "datapack") {
@@ -514,6 +528,50 @@ export function DownloadPage() {
             <form onSubmit={installGame}>
               <VStack gap={3}>
                 <Text weight="semibold">{t("oneClickInstall")}</Text>
+                {javaStatus && (
+                  <VStack gap={1}>
+                    <Text weight="semibold" type="supporting">
+                      {t("javaPrereqTitle")}
+                    </Text>
+                    <Text color="secondary" type="supporting">
+                      {t("javaPrereqNeed", {
+                        version: gameVersion,
+                        major: javaStatus.required_major,
+                      })}
+                    </Text>
+                    <Text color={javaStatus.satisfied ? "accent" : "secondary"} type="supporting">
+                      {javaStatus.satisfied
+                        ? t("javaPrereqOk", { major: javaStatus.required_major })
+                        : t("javaPrereqMissing")}
+                    </Text>
+                    {!javaStatus.satisfied && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        label={
+                          javaBusy
+                            ? t("javaDownloading")
+                            : t("javaDownloadTemurin", { major: javaStatus.required_major })
+                        }
+                        isDisabled={javaBusy}
+                        onClick={async () => {
+                          setJavaBusy(true);
+                          setError(null);
+                          try {
+                            const path = await api.downloadTemurin(javaStatus.required_major);
+                            setStatus(path);
+                            setJavaStatus(await api.javaStatus(normalizeMcVersion(gameVersion)));
+                          } catch (e) {
+                            setError(String(e));
+                          } finally {
+                            setJavaBusy(false);
+                          }
+                        }}
+                      />
+                    )}
+                  </VStack>
+                )}
                 <TextInput label={t("name")} value={name} onChange={setName} />
                 <Selector
                   label={t("gameVersion")}

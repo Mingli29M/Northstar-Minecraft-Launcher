@@ -1,6 +1,8 @@
 use crate::instances::get_instance;
 use crate::models::{IssueSeverity, LoaderKind, ReqIssue, ReqScanResult};
-use crate::mods_platform::{install_mod, search_mods};
+use crate::mods_platform::{
+    file_sha1_hex, install_project_with_deps, lookup_version_by_hash, search_mods,
+};
 use crate::paths::minecraft_dir;
 use chrono::Utc;
 use serde_json::Value;
@@ -9,6 +11,26 @@ use std::fs;
 use std::io::{Cursor, Read};
 use std::path::Path;
 use zip::ZipArchive;
+
+fn mk_issue(
+    severity: IssueSeverity,
+    mod_id: impl Into<String>,
+    message: impl Into<String>,
+    missing_mod_id: Option<String>,
+    source_file: Option<String>,
+    source: &str,
+    project_id: Option<String>,
+) -> ReqIssue {
+    ReqIssue {
+        severity,
+        mod_id: mod_id.into(),
+        message: message.into(),
+        missing_mod_id,
+        source_file,
+        source: Some(source.into()),
+        project_id,
+    }
+}
 
 #[derive(Debug, Clone)]
 struct ModMeta {
@@ -61,16 +83,26 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
                 metas.extend(list);
             }
             Err(e) => {
-                if let Some(meta) = filename_fallback_meta(&name) {
-                    metas.push(meta);
-                }
-                issues.push(ReqIssue {
-                    severity: IssueSeverity::Warn,
-                    mod_id: jar_stem_id(&name),
-                    message: format!("Could not read metadata: {name} — {e}"),
-                    missing_mod_id: None,
-                    source_file: Some(name),
-                });
+                // Always register jar in `present` so UI-listed mods aren't reported missing.
+                metas.push(filename_fallback_meta(&name).unwrap_or_else(|| ModMeta {
+                    id: jar_stem_id(&name),
+                    version: "*".into(),
+                    file: name.clone(),
+                    provides: Vec::new(),
+                    depends: HashMap::new(),
+                    recommends: HashMap::new(),
+                    breaks: HashMap::new(),
+                    conflicts: HashMap::new(),
+                }));
+                issues.push(mk_issue(
+                    IssueSeverity::Warn,
+                    jar_stem_id(&name),
+                    format!("Could not read metadata: {name} — {e}"),
+                    None,
+                    Some(name),
+                    "local",
+                    None,
+                ));
             }
         }
     }
@@ -139,16 +171,18 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
             let dep = dep.to_ascii_lowercase();
             if dep == "minecraft" {
                 if !version_satisfies(&inst.game_version, range) {
-                    issues.push(ReqIssue {
-                        severity: IssueSeverity::Error,
-                        mod_id: meta.id.clone(),
-                        message: format!(
+                    issues.push(mk_issue(
+                        IssueSeverity::Error,
+                        meta.id.clone(),
+                        format!(
                             "{} requires Minecraft {} (instance is {})",
                             meta.id, range, inst.game_version
                         ),
-                        missing_mod_id: None,
-                        source_file: Some(meta.file.clone()),
-                    });
+                        None,
+                        Some(meta.file.clone()),
+                        "local",
+                        None,
+                    ));
                 }
                 continue;
             }
@@ -162,7 +196,6 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
                             .get(&dep)
                             .map(|p| format!(" via `{p}`"))
                             .unwrap_or_default();
-                        // Skip version mismatch when dep is only satisfied via umbrella.
                         let umbrella_only = (has_fabric_api
                             && is_fabric_api_module(&dep)
                             && !present.contains_key(&dep))
@@ -170,21 +203,26 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
                                 && is_quilted_api_module(&dep)
                                 && !present.contains_key(&dep));
                         if !umbrella_only {
-                            issues.push(ReqIssue {
-                                severity: IssueSeverity::Error,
-                                mod_id: meta.id.clone(),
-                                message: format!(
-                                    "{} needs `{dep}` {range}, found {ver}{via}",
-                                    meta.id
-                                ),
-                                missing_mod_id: suggest_install_id(
+                            // Unparseable / exotic ranges: warn when the ID is present.
+                            let sev = if range_looks_exotic(range) {
+                                IssueSeverity::Warn
+                            } else {
+                                IssueSeverity::Error
+                            };
+                            issues.push(mk_issue(
+                                sev,
+                                meta.id.clone(),
+                                format!("{} needs `{dep}` {range}, found {ver}{via}", meta.id),
+                                suggest_install_id(
                                     &dep,
                                     &provided_by,
                                     has_fabric_api,
                                     has_quilted_api,
                                 ),
-                                source_file: Some(meta.file.clone()),
-                            });
+                                Some(meta.file.clone()),
+                                "local",
+                                None,
+                            ));
                         }
                     }
                 }
@@ -193,10 +231,10 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
 
             let suggest =
                 suggest_install_id(&dep, &provided_by, has_fabric_api, has_quilted_api);
-            issues.push(ReqIssue {
-                severity: IssueSeverity::Error,
-                mod_id: meta.id.clone(),
-                message: format!(
+            issues.push(mk_issue(
+                IssueSeverity::Error,
+                meta.id.clone(),
+                format!(
                     "{} depends on missing `{dep}` ({range}){}",
                     meta.id,
                     match &suggest {
@@ -204,9 +242,11 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
                         _ => String::new(),
                     }
                 ),
-                missing_mod_id: suggest,
-                source_file: Some(meta.file.clone()),
-            });
+                suggest,
+                Some(meta.file.clone()),
+                "local",
+                None,
+            ));
         }
 
         for (dep, range) in &meta.recommends {
@@ -215,18 +255,15 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
                 continue;
             }
             if !dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
-                issues.push(ReqIssue {
-                    severity: IssueSeverity::Warn,
-                    mod_id: meta.id.clone(),
-                    message: format!("{} recommends `{dep}` ({range})", meta.id),
-                    missing_mod_id: suggest_install_id(
-                        &dep,
-                        &provided_by,
-                        has_fabric_api,
-                        has_quilted_api,
-                    ),
-                    source_file: Some(meta.file.clone()),
-                });
+                issues.push(mk_issue(
+                    IssueSeverity::Warn,
+                    meta.id.clone(),
+                    format!("{} recommends `{dep}` ({range})", meta.id),
+                    suggest_install_id(&dep, &provided_by, has_fabric_api, has_quilted_api),
+                    Some(meta.file.clone()),
+                    "local",
+                    None,
+                ));
             }
         }
 
@@ -235,13 +272,15 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
             if present_ids.contains(&other) {
                 if let Some(ver) = present.get(&other) {
                     if version_satisfies(ver, range) || range == "*" {
-                        issues.push(ReqIssue {
-                            severity: IssueSeverity::Error,
-                            mod_id: meta.id.clone(),
-                            message: format!("{} breaks `{other}` ({range})", meta.id),
-                            missing_mod_id: None,
-                            source_file: Some(meta.file.clone()),
-                        });
+                        issues.push(mk_issue(
+                            IssueSeverity::Error,
+                            meta.id.clone(),
+                            format!("{} breaks `{other}` ({range})", meta.id),
+                            None,
+                            Some(meta.file.clone()),
+                            "local",
+                            None,
+                        ));
                     }
                 }
             }
@@ -250,22 +289,149 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
         for (other, range) in &meta.conflicts {
             let other = other.to_ascii_lowercase();
             if present_ids.contains(&other) {
-                issues.push(ReqIssue {
-                    severity: IssueSeverity::Warn,
-                    mod_id: meta.id.clone(),
-                    message: format!("{} conflicts with `{other}` ({range})", meta.id),
-                    missing_mod_id: None,
-                    source_file: Some(meta.file.clone()),
-                });
+                issues.push(mk_issue(
+                    IssueSeverity::Warn,
+                    meta.id.clone(),
+                    format!("{} conflicts with `{other}` ({range})", meta.id),
+                    None,
+                    Some(meta.file.clone()),
+                    "local",
+                    None,
+                ));
             }
         }
     }
+
+    // Modrinth dependency SoT: hash-lookup installed jars and merge required deps.
+    merge_modrinth_sot(
+        &mods_dir,
+        &metas,
+        &present_ids,
+        &inst.game_version,
+        inst.loader.as_str(),
+        &mut issues,
+    );
 
     Ok(ReqScanResult {
         issues,
         mod_count: metas.iter().filter(|m| !m.file.contains("!/")).count(),
         scanned_at: Utc::now().to_rfc3339(),
     })
+}
+
+fn range_looks_exotic(range: &str) -> bool {
+    let t = range.trim();
+    if t.is_empty() || t == "*" {
+        return false;
+    }
+    // Maven intervals and simple predicates are fine; everything else is exotic.
+    if t.starts_with('[') || t.starts_with('(') {
+        return false;
+    }
+    if t.starts_with(">=")
+        || t.starts_with("<=")
+        || t.starts_with('>')
+        || t.starts_with('<')
+        || t.starts_with('=')
+        || t.starts_with('~')
+        || t.starts_with('^')
+    {
+        return false;
+    }
+    if t.contains("||") || t.contains(' ') {
+        return false;
+    }
+    // Bare version string is OK; otherwise treat as exotic/unparseable.
+    t.chars().any(|c| !(c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '+'))
+}
+
+/// Cross-check installed jars against Modrinth version dependencies.
+fn merge_modrinth_sot(
+    mods_dir: &Path,
+    metas: &[ModMeta],
+    present_ids: &HashSet<String>,
+    game_version: &str,
+    loader: &str,
+    issues: &mut Vec<ReqIssue>,
+) {
+    let _ = (game_version, loader);
+    let mut versions = Vec::new();
+    let mut known_modrinth_projects: HashSet<String> = HashSet::new();
+
+    // Pass 1: resolve every root jar to a Modrinth version (best-effort; network may fail).
+    for meta in metas.iter().filter(|m| !m.file.contains("!/")).take(40) {
+        let path = mods_dir.join(&meta.file);
+        if !path.is_file() {
+            continue;
+        }
+        let Ok(hash) = file_sha1_hex(&path) else {
+            continue;
+        };
+        let Ok(Some(version)) = lookup_version_by_hash(&hash) else {
+            continue;
+        };
+        if !version.project_id.is_empty() {
+            known_modrinth_projects.insert(version.project_id.clone());
+        }
+        versions.push((meta.id.clone(), meta.file.clone(), version));
+    }
+
+    // Pass 2: emit missing required deps / incompatibles.
+    let mut seen_required: HashSet<String> = HashSet::new();
+    for (mod_id, file, version) in &versions {
+        for dep in &version.dependencies {
+            let dep_type = dep.dependency_type.to_ascii_lowercase();
+            let Some(project_id) = dep.project_id.clone().filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            if dep_type == "incompatible" && known_modrinth_projects.contains(&project_id) {
+                issues.push(mk_issue(
+                    IssueSeverity::Error,
+                    mod_id.clone(),
+                    format!("{mod_id} is incompatible with Modrinth project `{project_id}` (SoT)"),
+                    None,
+                    Some(file.clone()),
+                    "modrinth",
+                    Some(project_id),
+                ));
+                continue;
+            }
+            if dep_type != "required" {
+                continue;
+            }
+            if known_modrinth_projects.contains(&project_id) {
+                continue;
+            }
+            if !seen_required.insert(project_id.clone()) {
+                continue;
+            }
+            issues.push(mk_issue(
+                IssueSeverity::Error,
+                mod_id.clone(),
+                format!("{mod_id} requires Modrinth dependency `{project_id}` (not installed)"),
+                Some(project_id.clone()),
+                Some(file.clone()),
+                "modrinth",
+                Some(project_id),
+            ));
+        }
+    }
+
+    for issue in issues.iter_mut() {
+        if issue.source.as_deref() != Some("local") {
+            continue;
+        }
+        if !matches!(issue.severity, IssueSeverity::Error) {
+            continue;
+        }
+        let Some(missing) = issue.missing_mod_id.as_deref() else {
+            continue;
+        };
+        if present_ids.contains(missing) {
+            issue.severity = IssueSeverity::Warn;
+            issue.message = format!("{} (present via provides/umbrella — demoted)", issue.message);
+        }
+    }
 }
 
 fn jar_stem_id(file_name: &str) -> String {
@@ -301,7 +467,23 @@ fn filename_fallback_meta(file_name: &str) -> Option<ModMeta> {
 }
 
 fn is_fabric_api_module(dep: &str) -> bool {
-    dep.starts_with("fabric-") && dep != "fabric-api" && dep != "fabric-loader" && dep != "fabric"
+    // Only treat known Fabric API module patterns as covered by the fabric-api umbrella.
+    // Do NOT treat arbitrary fabric-* mods (e.g. fabric-language-kotlin) as FAPI modules.
+    if matches!(
+        dep,
+        "fabric-api" | "fabric-loader" | "fabric" | "fabric-language-kotlin"
+    ) {
+        return false;
+    }
+    if dep == "fabric-api-base" || dep.starts_with("fabric-api-") {
+        return true;
+    }
+    dep.starts_with("fabric-")
+        && (dep.contains("-v1")
+            || dep.contains("-v2")
+            || dep.contains("-v3")
+            || dep.contains("-v4")
+            || dep.contains("-v5"))
 }
 
 fn is_quilted_api_module(dep: &str) -> bool {
@@ -838,10 +1020,32 @@ fn normalize_semver(v: &str) -> String {
 
 pub fn resolve_missing(instance_id: String, missing_mod_id: String) -> Result<ReqScanResult, String> {
     let inst = get_instance(&instance_id)?;
+    let loader = inst.loader.as_str();
+
+    // Prefer direct Modrinth project id (from SoT issues) over fuzzy title search.
+    let looks_like_project_id = missing_mod_id.len() >= 8
+        && missing_mod_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+
+    if looks_like_project_id {
+        if install_project_with_deps(
+            &instance_id,
+            &missing_mod_id,
+            &inst.game_version,
+            loader,
+            0,
+        )
+        .is_ok()
+        {
+            return scan_instance(&instance_id);
+        }
+    }
+
     let hits = search_mods(
         missing_mod_id.clone(),
         inst.game_version.clone(),
-        inst.loader.as_str().to_string(),
+        loader.to_string(),
         None,
     )?;
     let hit = hits
@@ -855,7 +1059,7 @@ pub fn resolve_missing(instance_id: String, missing_mod_id: String) -> Result<Re
             search_mods(
                 missing_mod_id.clone(),
                 inst.game_version.clone(),
-                inst.loader.as_str().to_string(),
+                loader.to_string(),
                 None,
             )
             .ok()
@@ -863,17 +1067,40 @@ pub fn resolve_missing(instance_id: String, missing_mod_id: String) -> Result<Re
         })
         .ok_or_else(|| format!("Could not find `{missing_mod_id}` on Modrinth for this instance"))?;
 
-    let version = hit
-        .versions
-        .first()
-        .ok_or("No compatible version on Modrinth")?;
-    install_mod(instance_id.clone(), hit.project_id, version.id.clone())?;
+    install_project_with_deps(
+        &instance_id,
+        &hit.project_id,
+        &inst.game_version,
+        loader,
+        0,
+    )?;
+    scan_instance(&instance_id)
+}
+
+/// Install all missing required deps reported by the latest scan.
+pub fn resolve_all_missing(instance_id: String) -> Result<ReqScanResult, String> {
+    let scan = scan_instance(&instance_id)?;
+    let mut targets: Vec<String> = scan
+        .issues
+        .iter()
+        .filter(|i| matches!(i.severity, IssueSeverity::Error))
+        .filter_map(|i| {
+            i.project_id
+                .clone()
+                .or_else(|| i.missing_mod_id.clone())
+        })
+        .collect();
+    targets.sort();
+    targets.dedup();
+    for target in targets {
+        let _ = resolve_missing(instance_id.clone(), target);
+    }
     scan_instance(&instance_id)
 }
 
 #[cfg(test)]
 mod version_tests {
-    use super::version_satisfies;
+    use super::{is_fabric_api_module, version_satisfies};
 
     #[test]
     fn le_includes_equality() {
@@ -894,5 +1121,13 @@ mod version_tests {
         assert!(version_satisfies("1.21.11", "[1.21,1.21.11]"));
         assert!(!version_satisfies("1.21.11", "[1.21,1.21.11)"));
         assert!(version_satisfies("1.21.1", "[1.21,1.21.11]"));
+    }
+
+    #[test]
+    fn fabric_api_umbrella_modules() {
+        assert!(is_fabric_api_module("fabric-rendering-v1"));
+        assert!(is_fabric_api_module("fabric-api-base"));
+        assert!(!is_fabric_api_module("fabric-language-kotlin"));
+        assert!(!is_fabric_api_module("fabric-api"));
     }
 }

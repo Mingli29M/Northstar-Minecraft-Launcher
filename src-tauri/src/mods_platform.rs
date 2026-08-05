@@ -21,14 +21,29 @@ pub struct ModrinthHit {
     pub versions: Vec<ModrinthVersion>,
 }
 
-#[derive(Debug, Deserialize, serde::Serialize)]
+#[derive(Debug, Deserialize, serde::Serialize, Clone)]
 pub struct ModrinthVersion {
     pub id: String,
     pub version_number: String,
     pub files: Vec<ModrinthFile>,
+    #[serde(default)]
+    pub dependencies: Vec<ModrinthDependency>,
+    #[serde(default)]
+    pub project_id: String,
 }
 
-#[derive(Debug, Deserialize, serde::Serialize)]
+#[derive(Debug, Deserialize, serde::Serialize, Clone)]
+pub struct ModrinthDependency {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub version_id: Option<String>,
+    /// required | optional | incompatible | embedded
+    #[serde(default)]
+    pub dependency_type: String,
+}
+
+#[derive(Debug, Deserialize, serde::Serialize, Clone)]
 pub struct ModrinthFile {
     pub url: String,
     pub filename: String,
@@ -250,16 +265,144 @@ fn fetch_compatible_versions(
         if files.is_empty() {
             continue;
         }
-        out.push(ModrinthVersion {
-            id: v["id"].as_str().unwrap_or("").to_string(),
-            version_number: v["version_number"].as_str().unwrap_or("").to_string(),
-            files,
-        });
+        out.push(parse_modrinth_version(v, project_id));
         if out.len() >= 3 {
             break;
         }
     }
     Ok(out)
+}
+
+fn parse_modrinth_deps(v: &Value) -> Vec<ModrinthDependency> {
+    v["dependencies"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|d| ModrinthDependency {
+            project_id: d["project_id"].as_str().map(|s| s.to_string()),
+            version_id: d["version_id"].as_str().map(|s| s.to_string()),
+            dependency_type: d["dependency_type"].as_str().unwrap_or("required").to_string(),
+        })
+        .collect()
+}
+
+fn parse_modrinth_version(v: &Value, fallback_project: &str) -> ModrinthVersion {
+    let files = v["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|f| ModrinthFile {
+            url: f["url"].as_str().unwrap_or("").to_string(),
+            filename: f["filename"].as_str().unwrap_or("file.zip").to_string(),
+            primary: f["primary"].as_bool().unwrap_or(false),
+        })
+        .collect::<Vec<_>>();
+    ModrinthVersion {
+        id: v["id"].as_str().unwrap_or("").to_string(),
+        version_number: v["version_number"].as_str().unwrap_or("").to_string(),
+        files,
+        dependencies: parse_modrinth_deps(v),
+        project_id: v["project_id"]
+            .as_str()
+            .unwrap_or(fallback_project)
+            .to_string(),
+    }
+}
+
+/// Look up a Modrinth version by file hash (SHA1 preferred).
+pub fn lookup_version_by_hash(hash_hex: &str) -> Result<Option<ModrinthVersion>, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let url = format!(
+        "https://api.modrinth.com/v2/version_file/{}?algorithm=sha1",
+        hash_hex
+    );
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "Northstar/1.2.0")
+        .send()
+        .map_err(|e| e.to_string())?;
+    if resp.status().as_u16() == 404 {
+        return Ok(None);
+    }
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+    let data: Value = resp.json().map_err(|e| e.to_string())?;
+    Ok(Some(parse_modrinth_version(&data, "")))
+}
+
+/// Fetch a Modrinth version (includes dependencies[]).
+pub fn fetch_version(version_id: &str) -> Result<ModrinthVersion, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let data: Value = client
+        .get(format!("https://api.modrinth.com/v2/version/{version_id}"))
+        .header("User-Agent", "Northstar/1.2.0")
+        .send()
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| e.to_string())?;
+    Ok(parse_modrinth_version(&data, ""))
+}
+
+/// Install a Modrinth project by id (latest compatible version) and required deps.
+pub fn install_project_with_deps(
+    instance_id: &str,
+    project_id: &str,
+    game_version: &str,
+    loader: &str,
+    depth: u8,
+) -> Result<Vec<String>, String> {
+    if depth > 6 {
+        return Ok(Vec::new());
+    }
+    let versions = fetch_compatible_versions(project_id, game_version, loader, "mod")?;
+    let version = versions
+        .first()
+        .ok_or_else(|| format!("No compatible Modrinth version for `{project_id}`"))?;
+    // Re-fetch for full dependency list
+    let full = fetch_version(&version.id).unwrap_or_else(|_| version.clone());
+    let mut installed = Vec::new();
+    install_mod(
+        instance_id.to_string(),
+        project_id.to_string(),
+        full.id.clone(),
+    )?;
+    installed.push(project_id.to_string());
+
+    for dep in full.dependencies {
+        if !dep.dependency_type.eq_ignore_ascii_case("required") {
+            continue;
+        }
+        let Some(dep_project) = dep.project_id.filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        match install_project_with_deps(instance_id, &dep_project, game_version, loader, depth + 1)
+        {
+            Ok(more) => installed.extend(more),
+            Err(e) => {
+                // Soft-fail nested deps; caller can re-scan
+                let _ = e;
+            }
+        }
+    }
+    Ok(installed)
+}
+
+/// SHA1 hex of a file (for Modrinth version_file lookup).
+pub fn file_sha1_hex(path: &std::path::Path) -> Result<String, String> {
+    use sha1::{Digest, Sha1};
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    let mut hasher = Sha1::new();
+    hasher.update(&bytes);
+    Ok(hex::encode(hasher.finalize()))
 }
 
 fn download_modrinth_version_file(
@@ -302,10 +445,35 @@ fn download_modrinth_version_file(
     Ok(filename.to_string())
 }
 
-pub fn install_mod(instance_id: String, _project_id: String, version_id: String) -> Result<ModEntry, String> {
+pub fn install_mod(instance_id: String, project_id: String, version_id: String) -> Result<ModEntry, String> {
     let dest_dir = minecraft_dir(&instance_id)?.join("mods");
     let filename = download_modrinth_version_file(&version_id, &dest_dir)?;
     let path = dest_dir.join(&filename);
+
+    // Auto-install required Modrinth dependency chain.
+    if let Ok(inst) = get_instance(&instance_id) {
+        if let Ok(full) = fetch_version(&version_id) {
+            for dep in full.dependencies {
+                if !dep.dependency_type.eq_ignore_ascii_case("required") {
+                    continue;
+                }
+                let Some(dep_project) = dep.project_id.filter(|s| !s.is_empty()) else {
+                    continue;
+                };
+                if dep_project == project_id {
+                    continue;
+                }
+                let _ = install_project_with_deps(
+                    &instance_id,
+                    &dep_project,
+                    &inst.game_version,
+                    inst.loader.as_str(),
+                    1,
+                );
+            }
+        }
+    }
+
     Ok(ModEntry {
         file_name: filename,
         enabled: true,

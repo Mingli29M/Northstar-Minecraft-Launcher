@@ -192,6 +192,8 @@ export interface ReqIssue {
   message: string;
   missing_mod_id: string | null;
   source_file: string | null;
+  source?: string | null;
+  project_id?: string | null;
 }
 
 export interface ReqScanResult {
@@ -205,6 +207,25 @@ export interface ContentItem {
   path: string;
   kind: string;
   icon_path?: string | null;
+}
+
+export interface WorldBackup {
+  name: string;
+  path: string;
+  created_at: string;
+}
+
+export interface WorldInfo {
+  name: string;
+  path: string;
+  backup_count: number;
+  has_backups: boolean;
+  icon_path?: string | null;
+}
+
+export interface LitematicaInfo {
+  present: boolean;
+  schematics_path: string;
 }
 
 export interface WorldSettings {
@@ -244,9 +265,23 @@ export interface LogLine {
 }
 
 export interface CrashHint {
+  code: string;
   title: string;
   detail: string;
   severity: string;
+  params?: string[];
+}
+
+export interface JavaInstall {
+  path: string;
+  major: number;
+}
+
+export interface JavaStatus {
+  required_major: number;
+  detected: JavaInstall[];
+  satisfied: boolean;
+  recommended_path: string | null;
 }
 
 export interface VersionInfo {

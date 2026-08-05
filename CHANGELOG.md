@@ -4,6 +4,27 @@ Launcher release notes for the desktop app (Tauri). Website marketing changes li
 
 > **Split (1.1.1):** Launcher and website changelogs are maintained as separate files. This file covers the desktop launcher only.
 
+## 1.2.0 — 2026-08-05
+
+ReqGuard Modrinth source-of-truth, crash analysis, Java Temurin download, world backups, and Litematica notice.
+
+### ReqGuard
+- Local scan hardening: always register jars in `present`, tighter Fabric API umbrella, exotic version ranges warn instead of hard-error
+- Modrinth dependency SoT via SHA1 `version_file` lookup; required deps and incompatibles surface with project ids
+- Resolve installs by Modrinth project id (with required dependency chain); “Install all missing”
+
+### Crash analysis
+- Prefer newest crash-report + `latest.log`; extract exception/frames; stable hint codes for UI
+
+### Prerequisites
+- Java status panel on Download → Game; one-click Adoptium Temurin download into launcher-managed Java dir
+- Modrinth installs auto-pull required dependency chain
+
+### Worlds
+- Per-world backup fold-down (create / restore / delete) under `saves/<world>/backups/`
+- Settings → Backups `auto_backup_worlds` runs on launch with keep-last-N pruning
+- Litematica detection notice with schematics folder path
+
 ## 1.1.2 — 2026-08-05
 
 Settings sections, license/changelog in About, panel opacity, loader icons, and shared target-version selection.
