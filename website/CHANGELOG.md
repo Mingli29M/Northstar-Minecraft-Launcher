@@ -4,6 +4,14 @@ Marketing site (`website/`) release notes. Desktop launcher changes live in the 
 
 > **Split (1.1.1):** Launcher and website changelogs are maintained as separate files. This file covers the GitHub Pages site only.
 
+## 1.1.2 — 2026-08-05
+
+ReqGuard local metadata scan marked Experimental on the marketing site.
+
+### Capabilities
+- ReqGuard copy recommends Modrinth source-of-truth checks and labels local jar-metadata scanning Experimental
+- Experimental badge on the ReqGuard capability row
+
 ## 1.1.1 — 2026-08-04
 
 New brand marks on the site; changelog split from the launcher.
