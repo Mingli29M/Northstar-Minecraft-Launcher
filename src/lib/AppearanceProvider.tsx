@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { api } from "./api";
 import { APPEARANCE_EVENT, applyAppearance } from "./appearance";
 import type { LauncherSettings } from "./types";
@@ -15,16 +15,22 @@ type AppearanceDetail = Pick<
 >;
 
 export function AppearanceProvider({ children }: { children: ReactNode }) {
+  const latest = useRef<AppearanceDetail | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     let tries = 0;
 
+    const apply = (s: AppearanceDetail | null | undefined) => {
+      if (!s || cancelled) return;
+      latest.current = s;
+      applyAppearance(s);
+    };
+
     const applyFromSettings = () => {
       api
         .getSettings()
-        .then((s: LauncherSettings) => {
-          if (!cancelled) applyAppearance(s);
-        })
+        .then((s: LauncherSettings) => apply(s))
         .catch(() => {
           /* browser / missing backend */
         });
@@ -32,20 +38,33 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
 
     applyFromSettings();
 
-    // Theme class roots may mount after first paint — re-apply a few times.
+    // Theme roots may mount after first paint — re-apply a few times.
     const boot = window.setInterval(() => {
       tries += 1;
-      applyFromSettings();
-      if (tries >= 5) window.clearInterval(boot);
-    }, 200);
+      if (latest.current) applyAppearance(latest.current);
+      else applyFromSettings();
+      if (tries >= 8) window.clearInterval(boot);
+    }, 250);
+
+    // When Astryx injects theme scope nodes, re-apply vars onto them.
+    const mo = new MutationObserver(() => {
+      if (latest.current) applyAppearance(latest.current);
+    });
+    mo.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "data-astryx-theme"],
+    });
 
     const onCustom = (e: Event) => {
-      applyAppearance((e as CustomEvent<AppearanceDetail>).detail);
+      apply((e as CustomEvent<AppearanceDetail>).detail);
     };
     window.addEventListener(APPEARANCE_EVENT, onCustom);
     return () => {
       cancelled = true;
       window.clearInterval(boot);
+      mo.disconnect();
       window.removeEventListener(APPEARANCE_EVENT, onCustom);
     };
   }, []);

@@ -1,8 +1,8 @@
 import type { Account, DedicatedLoader, LoaderKind } from "./types";
-import vanillaIcon from "../assets/loaders/vanilla.svg";
-import fabricIcon from "../assets/loaders/fabric.svg";
-import quiltIcon from "../assets/loaders/quilt.svg";
-import forgeIcon from "../assets/loaders/forge.svg";
+import vanillaIcon from "../assets/loaders/vanilla.png";
+import fabricIcon from "../assets/loaders/fabric.png";
+import quiltIcon from "../assets/loaders/quilt.png";
+import forgeIcon from "../assets/loaders/forge.png";
 import neoforgeIcon from "../assets/loaders/neoforge.svg";
 import paperIcon from "../assets/loaders/paper.svg";
 import purpurIcon from "../assets/loaders/purpur.svg";
@@ -19,7 +19,7 @@ export function accountAvatarUrl(account: Account): string | null {
   return null;
 }
 
-/** Bundled loader mark (SVG asset URL). */
+/** Bundled loader mark (asset URL). Order preference: Fabric, Vanilla, Quilt, Forge. */
 export function loaderIconSrc(loader: LoaderKind | DedicatedLoader | string): string {
   switch (loader) {
     case "fabric":

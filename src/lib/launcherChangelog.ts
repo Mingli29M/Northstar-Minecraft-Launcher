@@ -20,7 +20,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
     version: "1.1.2",
     date: "2026-08-05",
     summary:
-      "Settings sections, Appearance bug fix, shared target version across Launch/Download/Servers, panel opacity, and loader icons.",
+      "Settings sections, Appearance bug fix (opacity/font/wallpaper), shared target version, background drag-and-drop, and real loader icons.",
     sections: [
       {
         title: "Settings",
@@ -33,20 +33,22 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
       {
         title: "Bug fixes",
         items: [
-          "Appearance settings apply correctly — accent, wallpaper, font, UI scale, and panel opacity now win over theme roots (live preview + after save)",
+          "Appearance settings apply correctly — accent, wallpaper, font, UI scale, and panel opacity now target Astryx theme scopes so cards and text update",
           "Download / Servers Target version defaults to the instance selected on Launch and stays in sync",
         ],
       },
       {
         title: "Appearance",
         items: [
-          "Panel opacity slider for semi-transparent cards over wallpaper (no OS acrylic)",
+          "Panel opacity makes every card surface translucent over wallpaper (no OS acrylic)",
+          "Background image: file picker + drag-and-drop dropzone",
+          "Font choices load web fonts so the selector change is visible",
         ],
       },
       {
         title: "Branding",
         items: [
-          "Bundled loader icons for Vanilla, Fabric, Quilt, Forge, NeoForge, Paper, and Purpur",
+          "Real loader icons for Fabric, Vanilla, Quilt, and Forge (plus NeoForge/Paper/Purpur marks)",
         ],
       },
     ],

@@ -1,5 +1,7 @@
-import type { FormEvent } from "react";
+import type { DragEvent, FormEvent } from "react";
 import { useEffect, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@astryxdesign/core/Button";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Card } from "@astryxdesign/core/Card";
@@ -7,11 +9,45 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { VStack } from "@astryxdesign/core/VStack";
+import { HStack } from "@astryxdesign/core/HStack";
 import { api } from "../lib/api";
 import { notifyAppearance } from "../lib/appearance";
 import { APP_VERSION, LAUNCHER_CHANGELOG } from "../lib/launcherChangelog";
 import { useI18n } from "../i18n";
 import type { LauncherSettings, Locale } from "../lib/types";
+
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"];
+
+function backgroundPreviewSrc(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  const value = raw.trim();
+  if (
+    /^https?:\/\//i.test(value) ||
+    value.startsWith("data:") ||
+    value.startsWith("blob:") ||
+    value.startsWith("asset:") ||
+    value.startsWith("http://asset.localhost") ||
+    value.startsWith("https://asset.localhost")
+  ) {
+    return value;
+  }
+  try {
+    return convertFileSrc(value);
+  } catch {
+    return value;
+  }
+}
+
+async function fileToBackgroundValue(file: File): Promise<string> {
+  const withPath = file as File & { path?: string };
+  if (withPath.path) return withPath.path;
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
+}
 
 const LICENSE_SUMMARY = `Copyright (c) 2026 Northstar contributors. All rights reserved.
 
@@ -74,6 +110,7 @@ export function SettingsPage() {
   const [javas, setJavas] = useState<string[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [section, setSection] = useState<SettingsSection>("general");
+  const [bgDragOver, setBgDragOver] = useState(false);
 
   useEffect(() => {
     api.getSettings().then((s) => {
@@ -82,6 +119,36 @@ export function SettingsPage() {
     });
     api.detectJavaInstalls().then(setJavas).catch(() => setJavas([]));
   }, []);
+
+  function setBackgroundImage(value: string | null) {
+    if (!settings) return;
+    setSettings(patchSettings(settings, { background_image: value }));
+  }
+
+  async function browseBackgroundImage() {
+    try {
+      const path = await open({
+        multiple: false,
+        filters: [{ name: "Image", extensions: IMAGE_EXTS }],
+      });
+      if (typeof path === "string" && path) setBackgroundImage(path);
+    } catch {
+      /* dialog cancelled / unavailable */
+    }
+  }
+
+  async function onBackgroundDrop(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setBgDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      setBackgroundImage(await fileToBackgroundValue(file));
+    } catch {
+      /* ignore bad drops */
+    }
+  }
 
   async function onSave(e: FormEvent) {
     e.preventDefault();
@@ -232,29 +299,78 @@ export function SettingsPage() {
                   />
                 </div>
               </div>
-              <TextInput
-                label={t("backgroundImage")}
-                description={t("backgroundImageHint")}
-                value={settings.background_image ?? ""}
-                onChange={(v) =>
-                  setSettings(patchSettings(settings, { background_image: v || null }))
-                }
-              />
-              {(settings.background_image || settings.background_color) && (
-                <Button
-                  type="button"
-                  label={t("clearBackground")}
-                  variant="secondary"
-                  onClick={() =>
-                    setSettings(
-                      patchSettings(settings, {
-                        background_image: null,
-                        background_color: null,
-                      }),
-                    )
+              <VStack gap={2}>
+                <Text type="supporting" weight="semibold">
+                  {t("backgroundImage")}
+                </Text>
+                <Text color="secondary" type="supporting">
+                  {t("backgroundImageHint")}
+                </Text>
+                <div
+                  className={`euml-bg-dropzone${bgDragOver ? " is-dragover" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => void browseBackgroundImage()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      void browseBackgroundImage();
+                    }
+                  }}
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    setBgDragOver(true);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setBgDragOver(true);
+                  }}
+                  onDragLeave={() => setBgDragOver(false)}
+                  onDrop={(e) => void onBackgroundDrop(e)}
+                >
+                  <Text type="supporting">{t("backgroundImageDrop")}</Text>
+                  {backgroundPreviewSrc(settings.background_image) && (
+                    <img
+                      className="euml-bg-dropzone__preview"
+                      src={backgroundPreviewSrc(settings.background_image) ?? undefined}
+                      alt=""
+                    />
+                  )}
+                </div>
+                <HStack gap={2} style={{ flexWrap: "wrap" }}>
+                  <Button
+                    type="button"
+                    label={t("backgroundImageBrowse")}
+                    variant="secondary"
+                    onClick={() => void browseBackgroundImage()}
+                  />
+                  {(settings.background_image || settings.background_color) && (
+                    <Button
+                      type="button"
+                      label={t("clearBackground")}
+                      variant="secondary"
+                      onClick={() =>
+                        setSettings(
+                          patchSettings(settings, {
+                            background_image: null,
+                            background_color: null,
+                          }),
+                        )
+                      }
+                    />
+                  )}
+                </HStack>
+                <TextInput
+                  label={t("backgroundImage")}
+                  description={t("backgroundImageHint")}
+                  value={
+                    settings.background_image?.startsWith("data:")
+                      ? "(embedded image)"
+                      : (settings.background_image ?? "")
                   }
+                  onChange={(v) => setBackgroundImage(v || null)}
                 />
-              )}
+              </VStack>
               <Selector
                 label={t("fontFamily")}
                 value={settings.font_family ?? "source-han-sans"}

@@ -14,11 +14,14 @@ Settings sections, license/changelog in About, panel opacity, loader icons, and 
 - Backups section exposes auto-backup toggles (snapshots take effect in 1.2.0+)
 
 ### Bug fixes
-- **Appearance settings apply correctly** — accent, wallpaper, font, UI scale, and panel opacity now win over the Astryx theme roots (live preview + after save)
+- **Appearance settings apply correctly** — accent, wallpaper, font, UI scale, and panel opacity now target Astryx theme scopes (`[data-astryx-theme]`), so cards and text actually update
 - Download / Servers “Target version” defaults to the instance selected on Launch (and stays in sync when changed)
 
 ### Appearance
-- Panel opacity slider for semi-transparent cards over wallpaper (no OS acrylic)
+- Panel opacity (“画面透明度”) makes every card surface translucent over wallpaper (no OS acrylic)
+- Background image: file picker + drag-and-drop dropzone (path/URL still supported)
+- Font choices load web fonts so the selector change is visible without local installs
+- Real loader icons: Fabric, Vanilla (grass), Quilt, Forge (anvil)
 
 ### Branding
 - Bundled loader icons for Vanilla, Fabric, Quilt, Forge, NeoForge, Paper, and Purpur

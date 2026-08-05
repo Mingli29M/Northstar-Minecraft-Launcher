@@ -2,6 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { LauncherSettings } from "./types";
 
 const BASE_FONT_PX = 16;
+const FONT_LINK_ID = "northstar-appearance-fonts";
 
 const FONT_STACKS: Record<string, string> = {
   system:
@@ -15,10 +16,47 @@ const FONT_STACKS: Record<string, string> = {
   plex: '"IBM Plex Sans", system-ui, sans-serif',
 };
 
+/** Google Fonts CSS so font choices are visible even without local installs. */
+const FONT_STYLESHEETS: Record<string, string> = {
+  "source-han-sans":
+    "https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap",
+  "source-han-serif":
+    "https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&display=swap",
+  noto: "https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap",
+  source:
+    "https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap",
+  plex: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap",
+};
+
+function ensureFontStylesheet(fontKey: string) {
+  const href = FONT_STYLESHEETS[fontKey];
+  const existing = document.getElementById(FONT_LINK_ID) as HTMLLinkElement | null;
+  if (!href) {
+    existing?.remove();
+    return;
+  }
+  if (existing) {
+    if (existing.href !== href) existing.href = href;
+    return;
+  }
+  const link = document.createElement("link");
+  link.id = FONT_LINK_ID;
+  link.rel = "stylesheet";
+  link.href = href;
+  document.head.appendChild(link);
+}
+
 function resolveBackgroundImage(raw: string | null | undefined): string | null {
   if (!raw?.trim()) return null;
   const value = raw.trim();
-  if (/^https?:\/\//i.test(value) || value.startsWith("data:")) {
+  if (
+    /^https?:\/\//i.test(value) ||
+    value.startsWith("data:") ||
+    value.startsWith("blob:") ||
+    value.startsWith("asset:") ||
+    value.startsWith("http://asset.localhost") ||
+    value.startsWith("https://asset.localhost")
+  ) {
     return `url("${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}")`;
   }
   try {
@@ -33,19 +71,24 @@ function setVar(el: HTMLElement, name: string, value: string | null) {
   if (value == null || value === "") {
     el.style.removeProperty(name);
   } else {
-    // Important so we win over Astryx/theme-neutral :root / .xj0fimd token sheets.
+    // Important so we win over Astryx/theme-neutral token sheets.
     el.style.setProperty(name, value, "important");
   }
 }
 
-/** Theme scopes that define Astryx CSS variables (must all be updated). */
+/**
+ * Astryx defines tokens on `[data-astryx-theme]` / `.xj0fimd` / `.x5tdzeq`,
+ * not only on `:root`. Vars set only on documentElement never reach Cards/Text.
+ */
 function themeRoots(): HTMLElement[] {
   const roots: HTMLElement[] = [document.documentElement];
   const appRoot = document.getElementById("root");
   if (appRoot) roots.push(appRoot);
-  document.querySelectorAll<HTMLElement>(".xj0fimd").forEach((el) => {
-    if (!roots.includes(el)) roots.push(el);
-  });
+  document
+    .querySelectorAll<HTMLElement>("[data-astryx-theme], .xj0fimd, .x5tdzeq")
+    .forEach((el) => {
+      if (!roots.includes(el)) roots.push(el);
+    });
   return roots;
 }
 
@@ -55,11 +98,18 @@ function paintShellBackground(bg: string | null, image: string | null) {
   if (appRoot) targets.push(appRoot);
   const shellMain = document.getElementById("astryx-app-shell-main");
   if (shellMain) targets.push(shellMain);
-  shellMain?.parentElement && targets.push(shellMain.parentElement);
+  if (shellMain?.parentElement) targets.push(shellMain.parentElement);
+  document
+    .querySelectorAll<HTMLElement>("[data-astryx-theme], #astryx-app-shell-nav, #astryx-app-shell-aside")
+    .forEach((el) => {
+      if (!targets.includes(el)) targets.push(el);
+    });
 
   for (const el of targets) {
     if (bg) {
       el.style.setProperty("background-color", bg, "important");
+    } else if (image) {
+      el.style.setProperty("background-color", "transparent", "important");
     } else {
       el.style.removeProperty("background-color");
     }
@@ -101,6 +151,12 @@ export function applyAppearance(
   const opacityRaw = settings?.ui_panel_opacity ?? 0.92;
   const opacity = Math.min(1, Math.max(0.55, Number(opacityRaw) || 0.92));
   const opacityPct = `${Math.round(opacity * 100)}%`;
+  // Opaque card colors with alpha so wallpaper shows through every Astryx Card.
+  const cardLight = `rgba(255, 255, 255, ${opacity})`;
+  const cardDark = `rgba(27, 27, 27, ${opacity})`;
+  const card = `light-dark(${cardLight}, ${cardDark})`;
+
+  ensureFontStylesheet(fontKey);
 
   for (const root of themeRoots()) {
     setVar(root, "--color-accent", accent);
@@ -112,18 +168,20 @@ export function applyAppearance(
     setVar(root, "--font-family-heading", stack);
     setVar(root, "--euml-panel-opacity", String(opacity));
     setVar(root, "--euml-panel-opacity-pct", opacityPct);
+    setVar(root, "--color-background-card", card);
+    setVar(root, "--color-background-popover", card);
+    setVar(root, "--color-background-surface", card);
 
     if (bg) {
       setVar(root, "--color-background-body", bg);
-      // Soften surface/card so wallpaper can show through when opacity < 1
-      setVar(root, "--color-background-surface", bg);
     } else {
       setVar(root, "--color-background-body", null);
-      setVar(root, "--color-background-surface", null);
     }
+
+    root.style.setProperty("font-family", stack, "important");
   }
 
-  document.body.style.fontFamily = stack;
+  document.body.style.setProperty("font-family", stack, "important");
   document.documentElement.style.fontSize = `${BASE_FONT_PX * clamped}px`;
   paintShellBackground(bg, image);
 }
