@@ -33,7 +33,12 @@ function resolveBackgroundImage(raw: string | null | undefined): string | null {
 export function applyAppearance(
   settings: Pick<
     LauncherSettings,
-    "accent" | "background_color" | "background_image" | "font_family" | "ui_scale"
+    | "accent"
+    | "background_color"
+    | "background_image"
+    | "font_family"
+    | "ui_scale"
+    | "ui_panel_opacity"
   > | null | undefined,
 ) {
   const root = document.documentElement;
@@ -70,6 +75,10 @@ export function applyAppearance(
   const scale = settings?.ui_scale ?? 1;
   const clamped = [0.9, 1, 1.1, 1.25].includes(scale) ? scale : 1;
   root.style.fontSize = `${BASE_FONT_PX * clamped}px`;
+
+  const opacityRaw = settings?.ui_panel_opacity ?? 0.92;
+  const opacity = Math.min(1, Math.max(0.55, Number(opacityRaw) || 0.92));
+  root.style.setProperty("--euml-panel-opacity", String(opacity));
 }
 
 export const APPEARANCE_EVENT = "northstar:appearance";

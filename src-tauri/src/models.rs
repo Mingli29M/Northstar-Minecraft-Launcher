@@ -275,6 +275,15 @@ pub struct LauncherSettings {
     /// UI scale factor: 0.9 / 1 / 1.1 / 1.25
     #[serde(default)]
     pub ui_scale: Option<f64>,
+    /// Panel chrome opacity 0.55–1.0 (UI only; window stays opaque)
+    #[serde(default)]
+    pub ui_panel_opacity: Option<f64>,
+    /// Snapshot worlds before launch when enabled
+    #[serde(default)]
+    pub auto_backup_worlds: Option<bool>,
+    /// Max automatic backups to retain per world
+    #[serde(default)]
+    pub auto_backup_keep: Option<u32>,
 }
 
 impl Default for LauncherSettings {
@@ -293,6 +302,9 @@ impl Default for LauncherSettings {
             background_image: None,
             font_family: Some("system".into()),
             ui_scale: Some(1.0),
+            ui_panel_opacity: Some(0.92),
+            auto_backup_worlds: Some(false),
+            auto_backup_keep: Some(5),
         }
     }
 }

@@ -15,9 +15,73 @@ body,
   margin: 0;
 }
 
+:root {
+  --euml-panel-opacity: 0.92;
+}
+
 body {
   background: var(--color-background-body, #f5f5f4);
   color: var(--color-text-primary, #1c1917);
+}
+
+/* Semi-transparent panels over wallpaper (UI only — window stays opaque). */
+.euml-panel,
+[data-astryx-component="Card"],
+.euml-page [class*="Card"] {
+  background-color: color-mix(
+    in srgb,
+    var(--color-background-secondary, #ffffff) calc(var(--euml-panel-opacity) * 100%),
+    transparent
+  ) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.euml-settings-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.euml-settings-nav__item {
+  appearance: none;
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  background: color-mix(
+    in srgb,
+    var(--color-background-secondary, #fff) calc(var(--euml-panel-opacity) * 100%),
+    transparent
+  );
+  color: var(--color-text-secondary, #57534e);
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.euml-settings-nav__item:hover {
+  color: var(--color-text-primary, #1c1917);
+}
+
+.euml-settings-nav__item.is-active {
+  color: #fff;
+  background: var(--color-accent, #1370f0);
+  border-color: var(--color-accent, #1370f0);
+}
+
+.euml-license-block {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0;
+  padding: 0.85rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-background-body, #f5f5f4) 80%, transparent);
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  overflow-x: auto;
 }
 
 /* AppShell main must scroll when content is taller than the viewport */

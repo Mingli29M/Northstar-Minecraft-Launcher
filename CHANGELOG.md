@@ -4,6 +4,21 @@ Launcher release notes for the desktop app (Tauri). Website marketing changes li
 
 > **Split (1.1.1):** Launcher and website changelogs are maintained separately. This file covers the desktop launcher only.
 
+## 1.1.2 — 2026-08-05
+
+Settings sections, license/changelog in About, panel opacity, and real loader icons.
+
+### Settings
+- Settings organized into General, Appearance, Java, Backups, and About sections
+- About includes All Rights Reserved license summary plus the full launcher changelog
+- Backups section exposes auto-backup toggles (snapshots take effect in 1.2.0+)
+
+### Appearance
+- Panel opacity slider for semi-transparent cards over wallpaper (no OS acrylic)
+
+### Branding
+- Bundled loader icons for Vanilla, Fabric, Quilt, Forge, NeoForge, Paper, and Purpur
+
 ## 1.1.1 — 2026-08-04
 
 Branding icons refreshed; changelog split from the marketing site.

@@ -60,6 +60,12 @@ export interface LauncherSettings {
   font_family?: string | null;
   /** 0.9 | 1 | 1.1 | 1.25 */
   ui_scale?: number | null;
+  /** Panel chrome opacity 0.55–1.0 (default ~0.92). No OS acrylic. */
+  ui_panel_opacity?: number | null;
+  /** When true, snapshot worlds before launch (wired in 1.2.0). */
+  auto_backup_worlds?: boolean | null;
+  /** Max automatic world backups to keep per world. */
+  auto_backup_keep?: number | null;
 }
 
 export type DedicatedLoader =

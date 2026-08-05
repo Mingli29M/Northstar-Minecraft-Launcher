@@ -1,6 +1,6 @@
 /** Embedded launcher changelog shown in Settings → About. */
 
-export const APP_VERSION = "1.1.1";
+export const APP_VERSION = "1.1.2";
 
 export type ChangelogSection = {
   title: string;
@@ -16,6 +16,34 @@ export type ChangelogEntry = {
 };
 
 export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.1.2",
+    date: "2026-08-05",
+    summary:
+      "Settings split into sections with License and full Changelog, semi-transparent panels, and real loader icons.",
+    sections: [
+      {
+        title: "Settings",
+        items: [
+          "Settings organized into General, Appearance, Java, Backups, and About sections",
+          "About includes All Rights Reserved license summary plus the full launcher changelog",
+          "Backups section exposes auto-backup toggles (snapshots take effect in 1.2.0+)",
+        ],
+      },
+      {
+        title: "Appearance",
+        items: [
+          "Panel opacity slider for semi-transparent cards over wallpaper (no OS acrylic)",
+        ],
+      },
+      {
+        title: "Branding",
+        items: [
+          "Bundled loader icons for Vanilla, Fabric, Quilt, Forge, NeoForge, Paper, and Purpur",
+        ],
+      },
+    ],
+  },
   {
     version: "1.1.1",
     date: "2026-08-04",
