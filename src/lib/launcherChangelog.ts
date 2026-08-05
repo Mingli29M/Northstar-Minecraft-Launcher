@@ -27,7 +27,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
         items: [
           "Background scans with an optional deep check of the real instance jars",
           "Canonical aliases and self-dependency filtering fix false Fabric API and mod-requires-itself reports",
-          "Modrinth dependency source-of-truth via version hash lookup",
+          "Batched Modrinth hash lookup plus project-slug mapping recognizes manual and CurseForge installs",
           "Install missing by project id with required dependency chain; install-all action",
         ],
       },

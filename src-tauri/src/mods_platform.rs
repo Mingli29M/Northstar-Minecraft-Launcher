@@ -3,6 +3,7 @@ use crate::models::{LoaderKind, ModEntry};
 use crate::paths::minecraft_dir;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -309,29 +310,66 @@ fn parse_modrinth_version(v: &Value, fallback_project: &str) -> ModrinthVersion 
     }
 }
 
-/// Look up a Modrinth version by file hash (SHA1 preferred).
-pub fn lookup_version_by_hash(hash_hex: &str) -> Result<Option<ModrinthVersion>, String> {
+/// Resolve many SHA1 hashes in one Modrinth request.
+pub fn lookup_versions_by_hashes(
+    hashes: &[String],
+) -> Result<HashMap<String, ModrinthVersion>, String> {
+    if hashes.is_empty() {
+        return Ok(HashMap::new());
+    }
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
+    let data: Value = client
+        .post("https://api.modrinth.com/v2/version_files")
+        .header("User-Agent", "Northstar/1.2.0")
+        .json(&serde_json::json!({
+            "hashes": hashes,
+            "algorithm": "sha1"
+        }))
+        .send()
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| e.to_string())?;
+    let mut versions = HashMap::new();
+    for (hash, version) in data.as_object().into_iter().flatten() {
+        versions.insert(hash.clone(), parse_modrinth_version(version, ""));
+    }
+    Ok(versions)
+}
+
+/// Map Modrinth project ids to public slugs for local mod-id reconciliation.
+pub fn fetch_project_slugs(project_ids: &[String]) -> Result<HashMap<String, String>, String> {
+    if project_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let ids = serde_json::to_string(project_ids).map_err(|e| e.to_string())?;
     let url = format!(
-        "https://api.modrinth.com/v2/version_file/{}?algorithm=sha1",
-        hash_hex
+        "https://api.modrinth.com/v2/projects?ids={}",
+        urlencoding::encode(&ids)
     );
-    let resp = client
-        .get(&url)
+    let data: Value = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?
+        .get(url)
         .header("User-Agent", "Northstar/1.2.0")
         .send()
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
         .map_err(|e| e.to_string())?;
-    if resp.status().as_u16() == 404 {
-        return Ok(None);
+    let mut slugs = HashMap::new();
+    for project in data.as_array().into_iter().flatten() {
+        if let (Some(id), Some(slug)) = (project["id"].as_str(), project["slug"].as_str()) {
+            slugs.insert(id.to_string(), slug.to_string());
+        }
     }
-    if !resp.status().is_success() {
-        return Ok(None);
-    }
-    let data: Value = resp.json().map_err(|e| e.to_string())?;
-    Ok(Some(parse_modrinth_version(&data, "")))
+    Ok(slugs)
 }
 
 /// Fetch a Modrinth version (includes dependencies[]).

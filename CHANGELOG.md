@@ -12,7 +12,7 @@ ReqGuard Modrinth source-of-truth, crash analysis, Java Temurin download, world 
 - ReqGuard scans run in a background worker; optional deep validation checks the actual instance jars against Modrinth
 - Canonical mod-id aliases, multi-mod jar ownership filtering, and self-dependency rejection fix false Fabric API and “mod requires itself” reports
 - Local launch gate stays offline and fast; exotic version ranges warn instead of hard-error
-- Modrinth dependency SoT via SHA1 `version_file` lookup; required deps and incompatibles surface with project ids
+- Modrinth dependency SoT uses batched SHA1 lookup across every jar, then reconciles project slugs with local mod ids so manual/CurseForge installs are recognized
 - Resolve installs by Modrinth project id (with required dependency chain); “Install all missing”
 
 ### Crash analysis

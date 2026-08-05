@@ -1,7 +1,8 @@
 use crate::instances::get_instance;
 use crate::models::{IssueSeverity, LoaderKind, ReqIssue, ReqScanResult};
 use crate::mods_platform::{
-    file_sha1_hex, install_project_with_deps, lookup_version_by_hash, search_mods,
+    fetch_project_slugs, file_sha1_hex, install_project_with_deps, lookup_versions_by_hashes,
+    search_mods,
 };
 use crate::paths::minecraft_dir;
 use chrono::Utc;
@@ -422,25 +423,63 @@ fn merge_modrinth_sot(
     let _ = (game_version, loader);
     let mut known_modrinth_projects: HashSet<String> = HashSet::new();
 
-    // Pass 1: resolve root jars concurrently. Network-backed checks stay in
-    // the background worker, but parallel lookup also keeps deep scans short.
+    // Pass 1: hash every root jar, then use Modrinth's batch endpoint. The old
+    // 40-jar cap made large instances incorrectly report later jars as absent.
     let roots: Vec<_> = metas
         .iter()
         .filter(|m| !m.file.contains("!/"))
-        .take(40)
         .collect();
-    let versions: Vec<_> = roots
+    let hashed_roots: Vec<_> = roots
         .par_iter()
         .filter_map(|meta| {
             let path = mods_dir.join(&meta.file);
             let hash = file_sha1_hex(&path).ok()?;
-            let version = lookup_version_by_hash(&hash).ok()??;
-            Some((meta.id.clone(), meta.file.clone(), version))
+            Some((meta.id.clone(), meta.file.clone(), hash))
+        })
+        .collect();
+    let mut versions_by_hash = HashMap::new();
+    let hashes: Vec<String> = hashed_roots
+        .iter()
+        .map(|(_, _, hash)| hash.clone())
+        .collect();
+    for chunk in hashes.chunks(100) {
+        if let Ok(found) = lookup_versions_by_hashes(chunk) {
+            versions_by_hash.extend(found);
+        }
+    }
+    let versions: Vec<_> = hashed_roots
+        .into_iter()
+        .filter_map(|(mod_id, file, hash)| {
+            versions_by_hash
+                .remove(&hash)
+                .map(|version| (mod_id, file, version))
         })
         .collect();
     for (_, _, version) in &versions {
         if !version.project_id.is_empty() {
             known_modrinth_projects.insert(version.project_id.clone());
+        }
+    }
+
+    // A manually installed or CurseForge jar may not resolve by Modrinth hash.
+    // Map dependency project ids to their public slugs so local metadata can
+    // still prove that the dependency is installed.
+    let mut dependency_projects: Vec<String> = versions
+        .iter()
+        .flat_map(|(_, _, version)| {
+            version
+                .dependencies
+                .iter()
+                .filter_map(|dep| dep.project_id.clone())
+        })
+        .filter(|id| !id.is_empty() && !known_modrinth_projects.contains(id))
+        .collect();
+    dependency_projects.sort();
+    dependency_projects.dedup();
+    let mut project_slugs = HashMap::new();
+    for chunk in dependency_projects.chunks(100) {
+        if let Ok(found) = fetch_project_slugs(chunk) {
+            project_slugs.extend(found);
         }
     }
 
@@ -457,7 +496,13 @@ fn merge_modrinth_sot(
             if project_id == version.project_id {
                 continue;
             }
-            if dep_type == "incompatible" && known_modrinth_projects.contains(&project_id) {
+            let dependency_present = modrinth_project_is_present(
+                &project_id,
+                &known_modrinth_projects,
+                &project_slugs,
+                present_ids,
+            );
+            if dep_type == "incompatible" && dependency_present {
                 issues.push(mk_issue(
                     IssueSeverity::Error,
                     mod_id.clone(),
@@ -472,7 +517,7 @@ fn merge_modrinth_sot(
             if dep_type != "required" {
                 continue;
             }
-            if known_modrinth_projects.contains(&project_id) {
+            if dependency_present {
                 continue;
             }
             if !seen_required.insert(project_id.clone()) {
@@ -504,6 +549,34 @@ fn merge_modrinth_sot(
             issue.severity = IssueSeverity::Warn;
             issue.message = format!("{} (present via provides/umbrella — demoted)", issue.message);
         }
+    }
+}
+
+fn modrinth_project_is_present(
+    project_id: &str,
+    known_projects: &HashSet<String>,
+    project_slugs: &HashMap<String, String>,
+    present_ids: &HashSet<String>,
+) -> bool {
+    if known_projects.contains(project_id) {
+        return true;
+    }
+    let local_id = project_slugs
+        .get(project_id)
+        .map(|slug| canonical_mod_id(slug))
+        .or_else(|| known_mod_id_for_project(project_id).map(str::to_string));
+    local_id
+        .as_deref()
+        .map(|id| present_ids.contains(id))
+        .unwrap_or(false)
+}
+
+fn known_mod_id_for_project(project_id: &str) -> Option<&'static str> {
+    match project_id {
+        // Fabric API. This fallback also works if project metadata lookup is
+        // temporarily unavailable.
+        "P7dR8mSH" => Some("fabric-api"),
+        _ => None,
     }
 }
 
@@ -1184,7 +1257,11 @@ pub fn resolve_all_missing(instance_id: String) -> Result<ReqScanResult, String>
 
 #[cfg(test)]
 mod version_tests {
-    use super::{canonical_mod_id, is_fabric_api_module, parse_mods_toml, version_satisfies};
+    use super::{
+        canonical_mod_id, is_fabric_api_module, modrinth_project_is_present, parse_mods_toml,
+        version_satisfies,
+    };
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn le_includes_equality() {
@@ -1220,6 +1297,27 @@ mod version_tests {
         assert_eq!(canonical_mod_id("cloth_config2"), "cloth-config");
         assert_eq!(canonical_mod_id("cloth-config"), "cloth-config");
         assert_eq!(canonical_mod_id("fabricloader"), "fabric-loader");
+    }
+
+    #[test]
+    fn modrinth_project_slug_matches_manual_local_install() {
+        let known = HashSet::new();
+        let present = HashSet::from(["fabric-api".to_string()]);
+        let slugs = HashMap::from([("P7dR8mSH".to_string(), "fabric-api".to_string())]);
+        assert!(modrinth_project_is_present(
+            "P7dR8mSH",
+            &known,
+            &slugs,
+            &present
+        ));
+        // Built-in fallback protects this high-frequency dependency when the
+        // project metadata request itself is unavailable.
+        assert!(modrinth_project_is_present(
+            "P7dR8mSH",
+            &known,
+            &HashMap::new(),
+            &present
+        ));
     }
 
     #[test]
