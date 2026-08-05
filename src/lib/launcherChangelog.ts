@@ -20,13 +20,13 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
     version: "1.1.1",
     date: "2026-08-04",
     summary:
-      "New geometric Northstar app icons, and launcher changelog split from the website changelog.",
+      "New Northstar app icons, and launcher changelog split from the website changelog.",
     sections: [
       {
         title: "Branding",
         items: [
-          "Replaced Minecraft-style nether-star window/installer icons with the new geometric Northstar mark",
-          "Overlay shard mark available for taller “star with overlay” brand visuals",
+          "Replaced nether-star window/installer icons with the new Northstar mark",
+          "Overlay shard mark available for taller brand visuals",
         ],
       },
       {
@@ -71,12 +71,12 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
     date: "2026-08-04",
     codename: "Northstar",
     summary:
-      "First public release of Northstar — a full PCL/HMCL-inspired desktop launcher for Minecraft Java Edition with dedicated hosting, Modrinth browsing, and multi-account support.",
+      "First public release of Northstar — a desktop launcher for Minecraft Java Edition with dedicated hosting, Modrinth browsing, and multi-account support.",
     sections: [
       {
         title: "Launch experience",
         items: [
-          "PCL/HMCL-style home screen with large Start button and quick version picker",
+          "Home screen with large Start button and quick version picker",
           "Per-instance JVM arguments, memory sliders, and Java runtime detection",
           "Offline and online account switching without leaving the Launch page",
           "Live console stream while the game boots, with crash-log shortcuts",
@@ -97,7 +97,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
           "Browse, search, and install mods/modpacks from Modrinth inside the app",
           "ReqGuard dependency scan before launch — catch missing Fabric API / libraries early",
           "Bulk mod update check with selective apply",
-          "Config editor with human-readable labels and Mod Menu–style section groups",
+          "Config editor with human-readable labels and grouped sections",
         ],
       },
       {

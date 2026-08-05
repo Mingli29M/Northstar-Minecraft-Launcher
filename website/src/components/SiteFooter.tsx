@@ -68,7 +68,7 @@ export function SiteFooter() {
                 <a href={LICENSE_RAW}>{t("footerLicenseFile")}</a>
               </li>
               <li>
-                <a href={CHANGELOG_FILE}>{t("footerChangelogMd")}</a>
+                <a href={CHANGELOG_FILE}>{t("changelogViewWebsiteMd")}</a>
               </li>
               <li>
                 <a href={REPO}>{t("footerGithub")}</a>
