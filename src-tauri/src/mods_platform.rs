@@ -321,7 +321,7 @@ pub fn lookup_version_by_hash(hash_hex: &str) -> Result<Option<ModrinthVersion>,
     );
     let resp = client
         .get(&url)
-        .header("User-Agent", "Northstar/1.2.0")
+        .header("User-Agent", "Northstar/1.2.1")
         .send()
         .map_err(|e| e.to_string())?;
     if resp.status().as_u16() == 404 {
@@ -342,7 +342,7 @@ pub fn fetch_version(version_id: &str) -> Result<ModrinthVersion, String> {
         .map_err(|e| e.to_string())?;
     let data: Value = client
         .get(format!("https://api.modrinth.com/v2/version/{version_id}"))
-        .header("User-Agent", "Northstar/1.2.0")
+        .header("User-Agent", "Northstar/1.2.1")
         .send()
         .map_err(|e| e.to_string())?
         .error_for_status()

@@ -4,6 +4,18 @@ Launcher release notes for the desktop app (Tauri). Website marketing changes li
 
 > **Split (1.1.1):** Launcher and website changelogs are maintained as separate files. This file covers the desktop launcher only.
 
+## 1.2.1 — 2026-08-05
+
+Hangar plugins for Paper/Purpur Host and ReqGuard polish.
+
+### Host plugins
+- **Plugins tab** on Paper/Purpur dedicated servers: search [Hangar](https://hangar.papermc.io), install jars into `runtime/plugins/`
+- Installed list with enable/disable (`.jar` / `.jar.disabled`) and delete
+
+### ReqGuard
+- `reqguard_resolve_all` exposed on Launch and Versions (install all missing)
+- Modrinth dependency lookup User-Agent bumped to `Northstar/1.2.1`
+
 ## 1.2.0 — 2026-08-05
 
 ReqGuard Modrinth source-of-truth, crash analysis, Java Temurin download, world backups, and Litematica notice.

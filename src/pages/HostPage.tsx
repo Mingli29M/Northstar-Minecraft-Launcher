@@ -23,7 +23,10 @@ import type {
   DedicatedProperties,
   DedicatedServer,
   DedicatedStatus,
+  HangarProject,
+  HangarVersion,
   HostLiveStats,
+  HostPluginEntry,
   VersionInfo,
 } from "../lib/types";
 
@@ -66,6 +69,11 @@ function hostIdFromPath(pathname: string): string | undefined {
 function isMissingServerError(e: unknown): boolean {
   const s = String(e);
   return s.includes("Server not found") || s.includes("folder may have been deleted");
+}
+
+function isPaperLikeLoader(loader: string): boolean {
+  const l = loader.toLowerCase();
+  return l === "paper" || l === "purpur";
 }
 
 const emptyLists = (): DedicatedPlayerLists => ({
@@ -113,7 +121,16 @@ export function HostPage() {
   const [netDownHist, setNetDownHist] = useState<number[]>([]);
   const [netUpHist, setNetUpHist] = useState<number[]>([]);
   const [cpuCount, setCpuCount] = useState(4);
+  const [pluginQuery, setPluginQuery] = useState("");
+  const [pluginHits, setPluginHits] = useState<HangarProject[]>([]);
+  const [pluginVersions, setPluginVersions] = useState<HangarVersion[]>([]);
+  const [pluginPick, setPluginPick] = useState<HangarProject | null>(null);
+  const [pluginVersion, setPluginVersion] = useState("latest");
+  const [installedPlugins, setInstalledPlugins] = useState<HostPluginEntry[]>([]);
+  const [pluginSearching, setPluginSearching] = useState(false);
   const consoleRef = useRef<HTMLPreElement>(null);
+
+  const paperLike = selected ? isPaperLikeLoader(String(selected.loader)) : false;
 
   const versionOptions = useMemo(() => {
     const filtered = versions.filter((v) => {
@@ -160,6 +177,64 @@ export function HostPage() {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [hostLines.length]);
+
+  const refreshInstalledPlugins = useCallback(async (serverId: string) => {
+    const list = await api.dedicatedListPlugins(serverId);
+    setInstalledPlugins(list);
+    return list;
+  }, []);
+
+  async function onSearchPlugins(e?: FormEvent) {
+    e?.preventDefault();
+    if (!selected) return;
+    setPluginSearching(true);
+    setError(null);
+    try {
+      const hits = await api.hangarSearchPlugins(pluginQuery, "PAPER", 24);
+      setPluginHits(hits);
+      setPluginPick(null);
+      setPluginVersions([]);
+      setPluginVersion("latest");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setPluginSearching(false);
+    }
+  }
+
+  async function onPickPlugin(hit: HangarProject) {
+    if (!selected) return;
+    setPluginPick(hit);
+    setPluginVersion("latest");
+    try {
+      const versions = await api.hangarListPluginVersions(hit.author, hit.slug, "PAPER");
+      setPluginVersions(versions);
+    } catch (err) {
+      setError(String(err));
+      setPluginVersions([]);
+    }
+  }
+
+  async function onInstallPlugin() {
+    if (!selected || !pluginPick) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.hangarInstallPlugin(
+        selected.id,
+        pluginPick.author,
+        pluginPick.slug,
+        pluginVersion || "latest",
+        "PAPER",
+      );
+      await refreshInstalledPlugins(selected.id);
+      setInfo(t("hostPluginInstalled"));
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const refreshList = useCallback(async () => {
     const list = await api.listDedicated();
@@ -235,6 +310,20 @@ export function HostPage() {
     setNetUpHist([]);
     setLive(null);
   }, [id, onHostRoute]);
+
+  useEffect(() => {
+    if (!onHostRoute || !id || !paperLike || tab !== "plugins") return;
+    let cancelled = false;
+    api
+      .dedicatedListPlugins(id)
+      .then((list) => {
+        if (!cancelled) setInstalledPlugins(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [onHostRoute, id, paperLike, tab]);
 
   useEffect(() => {
     if (!onHostRoute || !id || !status?.running || tab !== "live") return;
@@ -617,6 +706,7 @@ export function HostPage() {
               <Tab value="live" label={t("hostLive")} />
               <Tab value="properties" label={t("hostProperties")} />
               <Tab value="lists" label={t("hostPlayerLists")} />
+              {paperLike && <Tab value="plugins" label={t("hostPlugins")} />}
               <Tab value="files" label={t("hostFiles")} />
               <Tab value="network" label={t("hostNetwork")} />
               <Tab value="advanced" label={t("hostAdvanced")} />
@@ -897,6 +987,133 @@ export function HostPage() {
                     isDisabled={busy}
                     onClick={() => void onSaveLists()}
                   />
+                </VStack>
+              </Card>
+            )}
+
+            {tab === "plugins" && paperLike && (
+              <Card padding={4} className="euml-fade-in">
+                <VStack gap={3}>
+                  <Text color="secondary">{t("hostPluginsHint")}</Text>
+                  <form onSubmit={onSearchPlugins}>
+                    <HStack gap={2} align="end" style={{ flexWrap: "wrap" }}>
+                      <TextInput
+                        label={t("hostHangarSearch")}
+                        value={pluginQuery}
+                        onChange={setPluginQuery}
+                      />
+                      <Button
+                        type="submit"
+                        label={t("search")}
+                        variant="primary"
+                        isDisabled={pluginSearching || busy}
+                      />
+                    </HStack>
+                  </form>
+
+                  {pluginHits.length > 0 && (
+                    <VStack gap={2} style={{ alignItems: "stretch" }}>
+                      <Text weight="semibold">{t("hostHangarResults")}</Text>
+                      {pluginHits.map((hit) => (
+                        <HStack
+                          key={`${hit.author}/${hit.slug}`}
+                          justify="between"
+                          align="start"
+                          gap={2}
+                          style={{
+                            padding: "8px 0",
+                            borderBottom: "1px solid var(--astryx-color-border, #d0d7e2)",
+                            cursor: "pointer",
+                            background:
+                              pluginPick?.slug === hit.slug && pluginPick?.author === hit.author
+                                ? "var(--astryx-color-bg-secondary, #f0f4fa)"
+                                : undefined,
+                          }}
+                          onClick={() => void onPickPlugin(hit)}
+                        >
+                          <VStack gap={0} style={{ minWidth: 0, flex: 1 }}>
+                            <Text weight="semibold">{hit.name}</Text>
+                            <Text color="secondary" type="supporting">
+                              {hit.author}/{hit.slug}
+                              {hit.downloads != null ? ` · ${hit.downloads.toLocaleString()} DL` : ""}
+                            </Text>
+                            <Text color="secondary" type="supporting">
+                              {hit.description.slice(0, 160)}
+                              {hit.description.length > 160 ? "…" : ""}
+                            </Text>
+                          </VStack>
+                        </HStack>
+                      ))}
+                    </VStack>
+                  )}
+
+                  {pluginPick && (
+                    <VStack gap={2} style={{ alignItems: "stretch" }}>
+                      <Text weight="semibold">
+                        {t("hostPluginInstall")}: {pluginPick.name}
+                      </Text>
+                      <Selector
+                        label={t("hostPluginVersion")}
+                        value={pluginVersion}
+                        onChange={setPluginVersion}
+                        options={[
+                          { value: "latest", label: t("hostPluginLatest") },
+                          ...pluginVersions.map((v) => ({ value: v.name, label: v.name })),
+                        ]}
+                      />
+                      <Button
+                        label={t("hostPluginInstall")}
+                        variant="primary"
+                        isDisabled={busy}
+                        onClick={() => void onInstallPlugin()}
+                      />
+                    </VStack>
+                  )}
+
+                  <Text weight="semibold">{t("hostPluginsInstalled")}</Text>
+                  {installedPlugins.length === 0 ? (
+                    <Text color="secondary">{t("hostPluginsEmpty")}</Text>
+                  ) : (
+                    installedPlugins.map((p) => (
+                      <HStack key={p.name} justify="between" align="center" gap={2}>
+                        <Text>
+                          {p.name}
+                          {!p.enabled ? ` (${t("hostPluginDisabled")})` : ""}
+                        </Text>
+                        <HStack gap={2}>
+                          <Button
+                            size="sm"
+                            label={p.enabled ? t("hostPluginDisable") : t("hostPluginEnable")}
+                            onClick={() =>
+                              void runSafe(async () => {
+                                if (!selected) return;
+                                const list = await api.dedicatedSetPluginEnabled(
+                                  selected.id,
+                                  p.name,
+                                  !p.enabled,
+                                );
+                                setInstalledPlugins(list);
+                                return list;
+                              })
+                            }
+                          />
+                          <Button
+                            size="sm"
+                            label={t("delete")}
+                            onClick={() =>
+                              void runSafe(async () => {
+                                if (!selected) return;
+                                if (!window.confirm(t("hostPluginDeleteConfirm"))) return;
+                                const list = await api.dedicatedDeletePlugin(selected.id, p.name);
+                                setInstalledPlugins(list);
+                                return list;
+                              })
+                            }
+                          />
+                        </HStack>
+                      </HStack>
+                    ))
+                  )}
                 </VStack>
               </Card>
             )}
