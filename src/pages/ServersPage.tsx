@@ -12,6 +12,7 @@ import { api } from "../lib/api";
 import { useI18n } from "../i18n";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { useFavorites } from "../lib/favorites";
+import { loadPreferredInstanceId, rememberPreferredInstance } from "../lib/preferredInstance";
 import { favoriteId, normalizeServerKey } from "../lib/types";
 import type { Instance, ServerEntry } from "../lib/types";
 
@@ -30,9 +31,9 @@ export function ServersPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.listInstances().then((list) => {
+    void loadPreferredInstanceId().then(({ instances: list, instanceId: preferred }) => {
       setInstances(list);
-      if (!instanceId && list[0]) setInstanceId(list[0].id);
+      if (preferred) setInstanceId(preferred);
     });
   }, []);
 
@@ -41,6 +42,7 @@ export function ServersPage() {
       setServers([]);
       return;
     }
+    void rememberPreferredInstance(instanceId);
     api
       .listServers(instanceId)
       .then(setServers)

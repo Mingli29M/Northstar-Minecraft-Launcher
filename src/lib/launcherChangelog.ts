@@ -1,6 +1,6 @@
 /** Embedded launcher changelog shown in Settings → About. */
 
-export const APP_VERSION = "1.1.1";
+export const APP_VERSION = "1.1.2";
 
 export type ChangelogSection = {
   title: string;
@@ -16,6 +16,44 @@ export type ChangelogEntry = {
 };
 
 export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.1.2",
+    date: "2026-08-05",
+    summary:
+      "Settings sections, Appearance bug fix (opacity/font/wallpaper), shared target version, background drag-and-drop, and real loader icons.",
+    sections: [
+      {
+        title: "Settings",
+        items: [
+          "Settings organized into General, Appearance, Java, Backups, and About sections",
+          "About includes All Rights Reserved license summary plus the full launcher changelog",
+          "Backups section exposes auto-backup toggles (snapshots take effect in 1.2.0+)",
+        ],
+      },
+      {
+        title: "Bug fixes",
+        items: [
+          "Appearance settings apply correctly — accent, wallpaper, font, UI scale, and panel opacity now target Astryx theme scopes so cards and text update",
+          "Download / Servers Target version defaults to the instance selected on Launch and stays in sync",
+          "Player head icons load reliably — fetched and cached in Rust (Crafthead / MC-Heads / Mojang+BMCLAPI) instead of Crafatar in the WebView",
+        ],
+      },
+      {
+        title: "Appearance",
+        items: [
+          "Panel opacity makes every card surface translucent over wallpaper (no OS acrylic)",
+          "Background image: file picker + drag-and-drop dropzone",
+          "Font choices load web fonts so the selector change is visible",
+        ],
+      },
+      {
+        title: "Branding",
+        items: [
+          "Real loader icons for Fabric, Vanilla, Quilt, and Forge (plus NeoForge/Paper/Purpur marks)",
+        ],
+      },
+    ],
+  },
   {
     version: "1.1.1",
     date: "2026-08-04",
