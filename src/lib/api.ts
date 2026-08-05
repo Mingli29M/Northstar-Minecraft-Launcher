@@ -4,6 +4,7 @@ import type {
   Account,
   ContentItem,
   CrashHint,
+  GameExitAnalysis,
   Instance,
   InstanceFolder,
   JavaStatus,
@@ -258,6 +259,8 @@ export const api = {
     invoke<ContentItem[]>("delete_datapack", { instanceId, worldName, name }),
   readLogs: (instanceId: string) => invoke<LogLine[]>("read_logs", { instanceId }),
   analyzeCrash: (instanceId: string) => invoke<CrashHint[]>("analyze_crash", { instanceId }),
+  lastGameExitAnalysis: (instanceId: string) =>
+    invoke<GameExitAnalysis | null>("last_game_exit_analysis", { instanceId }),
 
   listServers: (instanceId: string) => invoke<ServerEntry[]>("list_servers", { instanceId }),
   addServer: (instanceId: string, name: string, ip: string) =>

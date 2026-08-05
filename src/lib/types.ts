@@ -66,6 +66,8 @@ export interface LauncherSettings {
   auto_backup_worlds?: boolean | null;
   /** Max automatic world backups to keep per world. */
   auto_backup_keep?: number | null;
+  /** Include network-backed Modrinth checks in background ReqGuard scans. */
+  reqguard_deep_validation?: boolean | null;
 }
 
 export type DedicatedLoader =
@@ -200,6 +202,8 @@ export interface ReqScanResult {
   issues: ReqIssue[];
   mod_count: number;
   scanned_at: string;
+  deep_scan?: boolean;
+  duration_ms?: number;
 }
 
 export interface ContentItem {
@@ -270,6 +274,15 @@ export interface CrashHint {
   detail: string;
   severity: string;
   params?: string[];
+}
+
+export interface GameExitAnalysis {
+  instance_id: string;
+  exit_code: number | null;
+  success: boolean;
+  summary: string;
+  occurred_at: string;
+  hints: CrashHint[];
 }
 
 export interface JavaInstall {

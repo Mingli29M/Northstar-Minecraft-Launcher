@@ -213,6 +213,18 @@ export function SettingsPage() {
                   { value: "bmclapi", label: t("downloadSourceBmclapi") },
                 ]}
               />
+              <Selector
+                label={t("reqguardDeepValidation")}
+                description={t("reqguardDeepValidationHint")}
+                value={settings.reqguard_deep_validation === false ? "off" : "on"}
+                onChange={(v) =>
+                  setSettings({ ...settings, reqguard_deep_validation: v === "on" })
+                }
+                options={[
+                  { value: "on", label: t("reqguardDeepOn") },
+                  { value: "off", label: t("reqguardDeepOff") },
+                ]}
+              />
               <TextInput
                 label={t("downloadThreads")}
                 description={t("downloadThreadsHint")}

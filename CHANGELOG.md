@@ -9,12 +9,15 @@ Launcher release notes for the desktop app (Tauri). Website marketing changes li
 ReqGuard Modrinth source-of-truth, crash analysis, Java Temurin download, world backups, and Litematica notice.
 
 ### ReqGuard
-- Local scan hardening: always register jars in `present`, tighter Fabric API umbrella, exotic version ranges warn instead of hard-error
+- ReqGuard scans run in a background worker; optional deep validation checks the actual instance jars against Modrinth
+- Canonical mod-id aliases, multi-mod jar ownership filtering, and self-dependency rejection fix false Fabric API and “mod requires itself” reports
+- Local launch gate stays offline and fast; exotic version ranges warn instead of hard-error
 - Modrinth dependency SoT via SHA1 `version_file` lookup; required deps and incompatibles surface with project ids
 - Resolve installs by Modrinth project id (with required dependency chain); “Install all missing”
 
 ### Crash analysis
 - Prefer newest crash-report + `latest.log`; extract exception/frames; stable hint codes for UI
+- Monitor Minecraft for its full lifetime, analyze abnormal exits automatically, and persist an in-app message for the next launcher session
 
 ### Prerequisites
 - Java status panel on Download → Game; one-click Adoptium Temurin download into launcher-managed Java dir

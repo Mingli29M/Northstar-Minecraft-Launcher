@@ -10,6 +10,7 @@ import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { VStack } from "@astryxdesign/core/VStack";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Selector } from "@astryxdesign/core/Selector";
+import { Spinner } from "@astryxdesign/core/Spinner";
 import { api } from "../lib/api";
 import { loaderIconSrc } from "../lib/avatars";
 import { useI18n } from "../i18n";
@@ -62,6 +63,7 @@ export function VersionsPage() {
   const [datapacks, setDatapacks] = useState<ContentItem[]>([]);
   const [worldForDp, setWorldForDp] = useState("");
   const [scan, setScan] = useState<ReqScanResult | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [creating, setCreating] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -149,8 +151,13 @@ export function VersionsPage() {
             }
           }
         } else if (tab === "reqguard") {
-          const s = await api.reqguardScan(selected.id);
-          if (!cancelled) setScan(s);
+          if (!cancelled) setScanBusy(true);
+          try {
+            const s = await api.reqguardScan(selected.id);
+            if (!cancelled) setScan(s);
+          } finally {
+            if (!cancelled) setScanBusy(false);
+          }
         } else if (tab === "logs") {
           const l = await api.readLogs(selected.id);
           if (!cancelled) setLogs(l);
@@ -165,6 +172,16 @@ export function VersionsPage() {
       clearTimeout(timer);
     };
   }, [selected, tab, worldForDp]);
+
+  async function rerunReqguard() {
+    if (!selected || scanBusy) return;
+    setScanBusy(true);
+    try {
+      setScan(await api.reqguardScan(selected.id));
+    } finally {
+      setScanBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!selected || !expandedWorld) {
@@ -1140,7 +1157,11 @@ export function VersionsPage() {
             {tab === "reqguard" && (
               <Card padding={4} className="euml-fade-in">
                 <HStack gap={2} style={{ flexWrap: "wrap" }}>
-                  <Button label={t("rerunReqguard")} onClick={async () => setScan(await api.reqguardScan(selected.id))} />
+                  <Button
+                    label={t("rerunReqguard")}
+                    isDisabled={scanBusy}
+                    onClick={() => void rerunReqguard()}
+                  />
                   {scan && scan.issues.some((i) => i.severity === "error") && (
                     <Button
                       label={t("installAllMissing")}
@@ -1149,6 +1170,12 @@ export function VersionsPage() {
                     />
                   )}
                 </HStack>
+                {scanBusy && (
+                  <HStack gap={2} align="center" style={{ marginTop: 12 }}>
+                    <Spinner size="sm" />
+                    <Text color="secondary" type="supporting">{t("reqguardScanning")}</Text>
+                  </HStack>
+                )}
                 <VStack gap={2} style={{ marginTop: 12 }}>
                   {scan?.issues.map((issue, i) => (
                     <VStack key={i} gap={1}>

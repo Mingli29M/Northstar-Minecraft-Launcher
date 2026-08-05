@@ -25,7 +25,8 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
       {
         title: "ReqGuard",
         items: [
-          "Local scan hardening and tighter Fabric API umbrella",
+          "Background scans with an optional deep check of the real instance jars",
+          "Canonical aliases and self-dependency filtering fix false Fabric API and mod-requires-itself reports",
           "Modrinth dependency source-of-truth via version hash lookup",
           "Install missing by project id with required dependency chain; install-all action",
         ],
@@ -34,6 +35,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
         title: "Crash analysis",
         items: [
           "Newest crash-report + latest.log with exception/frame extraction and stable hint codes",
+          "Automatic full-lifetime process monitoring with persisted in-app analysis after abnormal exits",
         ],
       },
       {
