@@ -355,7 +355,7 @@ pub fn fetch_project_slugs(project_ids: &[String]) -> Result<HashMap<String, Str
         .timeout(std::time::Duration::from_secs(20))
         .build()
         .map_err(|e| e.to_string())?
-        .get(url)
+        .get(&url)
         .header("User-Agent", "Northstar/1.2.2")
         .send()
         .map_err(|e| e.to_string())?

@@ -653,6 +653,22 @@ a.ns-nav-cta:hover {
   text-wrap: balance;
 }
 
+.ns-experimental {
+  display: inline-block;
+  margin-left: 0.65rem;
+  padding: 0.15rem 0.5rem;
+  vertical-align: middle;
+  border: 1px solid color-mix(in srgb, var(--ns-muted) 45%, transparent);
+  border-radius: 4px;
+  color: var(--ns-muted);
+  font-family: var(--font-body, inherit);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
 .ns-split-copy p {
   margin: 0;
   color: var(--ns-muted);

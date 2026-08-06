@@ -25,9 +25,16 @@ const CAPABILITIES: {
   bodyKey: MessageKey;
   icon: LucideIcon;
   shotKey: MessageKey;
+  experimental?: boolean;
 }[] = [
   { icon: Server, titleKey: "why1Title", bodyKey: "why1Body", shotKey: "shotWhy1" },
-  { icon: ScanSearch, titleKey: "why2Title", bodyKey: "why2Body", shotKey: "shotWhy2" },
+  {
+    icon: ScanSearch,
+    titleKey: "why2Title",
+    bodyKey: "why2Body",
+    shotKey: "shotWhy2",
+    experimental: true,
+  },
   {
     icon: MonitorSmartphone,
     titleKey: "why3Title",
@@ -87,7 +94,13 @@ function ShotBox({ label }: { label: string }) {
 function CapabilityRows({
   items,
 }: {
-  items: { titleKey: MessageKey; bodyKey: MessageKey; icon: LucideIcon; shotKey: MessageKey }[];
+  items: {
+    titleKey: MessageKey;
+    bodyKey: MessageKey;
+    icon: LucideIcon;
+    shotKey: MessageKey;
+    experimental?: boolean;
+  }[];
 }) {
   const { t } = useI18n();
   return (
@@ -102,7 +115,12 @@ function CapabilityRows({
                 <div className="ns-split-icon" aria-hidden>
                   <Icon size={22} strokeWidth={1.75} />
                 </div>
-                <h3>{t(item.titleKey)}</h3>
+                <h3>
+                  {t(item.titleKey)}
+                  {item.experimental ? (
+                    <span className="ns-experimental">{t("experimentalBadge")}</span>
+                  ) : null}
+                </h3>
                 <p>{t(item.bodyKey)}</p>
               </div>
               <ShotBox label={t(item.shotKey)} />

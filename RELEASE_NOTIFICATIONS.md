@@ -2,7 +2,7 @@
 
 ## What the CI does
 
-The GitHub Actions `publish` workflow builds installers for Windows, macOS (Apple Silicon + Intel), and Linux and attaches them to a GitHub Release tagged `euml-v__VERSION__` (version comes from `tauri.conf.json` / `package.json`).
+The GitHub Actions `publish` workflow builds installers for Windows, macOS (Apple Silicon + Intel), and Linux and attaches them to a **draft** GitHub Release tagged `northstar-v__VERSION__` (version comes from `tauri.conf.json` / `package.json`). Publish the draft from the Releases page when ready.
 
 ## Triggering a release
 
@@ -51,6 +51,6 @@ When `APPLE_CERTIFICATE` is present, the workflow imports it into a temporary ke
 
 ## Finding the files
 
-After a green run: **Releases** → tag `euml-v1.0.0` (or current version).
+After a green run: **Releases** → draft tag `northstar-v__VERSION__` (or current version) → review assets → **Publish release**.
 
 In-app notes: **Settings → About**.

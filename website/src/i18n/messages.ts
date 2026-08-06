@@ -15,7 +15,7 @@ const en = {
   langZh: "中文",
   langDe: "Deutsch",
 
-  heroPill: "v1.1.1 · Host + ReqGuard",
+  heroPill: "v1.1.2 · Host + ReqGuard",
   heroTagline:
     "A desktop Minecraft launcher with Host, ReqGuard, and Modrinth — built to feel like a tool, not a dashboard.",
   heroDownload: "Download latest",
@@ -26,13 +26,14 @@ const en = {
   capabilitiesTitle: "Built for launch and host",
   capabilitiesLead:
     "Prism-class instance control, plus Host and ReqGuard — and the rest of what ships in the desktop app.",
+  experimentalBadge: "Experimental",
 
   why1Title: "Launch + Host in one app",
   why1Body:
     "Play and run dedicated servers without bouncing between a launcher and a separate host tool. Console, EULA, properties, and port maps stay in the Host tab.",
   why2Title: "Catch broken mods before you boot",
   why2Body:
-    "ReqGuard reads mod dependency metadata and surfaces missing libraries (e.g. Fabric API) before Minecraft starts — fewer crash-loop cycles.",
+    "ReqGuard’s recommended path cross-checks installed jars against Modrinth. Local jar-metadata scanning is Experimental, off by default in the launcher, and can be enabled in Settings when you want the offline walker.",
   why3Title: "Desktop-native shell, modern UI kit",
   why3Body:
     "Tauri 2 keeps the shell native; the UI uses Meta Astryx (same design system as the app). No Electron-sized runtime for the window chrome.",
@@ -175,6 +176,12 @@ const en = {
   changelogViewWebsiteMd: "View website/CHANGELOG.md",
   changelogViewLauncherMd: "View CHANGELOG.md",
 
+  cl112Summary: "ReqGuard local metadata scan called out as Experimental on the marketing site.",
+  cl112Sec1: "Capabilities",
+  cl112Sec1I1:
+    "ReqGuard copy now recommends Modrinth source-of-truth checks and labels local jar-metadata scanning Experimental",
+  cl112Sec1I2: "Experimental badge on the ReqGuard capability row",
+
   cl111Summary: "New Northstar brand marks on the site; website and launcher changelogs split.",
   cl111Sec1: "Branding",
   cl111Sec1I1:
@@ -239,7 +246,7 @@ const zh: Record<MessageKey, string> = {
   langZh: "中文",
   langDe: "Deutsch",
 
-  heroPill: "v1.1.1 · Host + ReqGuard",
+  heroPill: "v1.1.2 · Host + ReqGuard",
   heroTagline:
     "桌面端 Minecraft 启动器，内置 Host、ReqGuard 与 Modrinth —— 像工具，而不像仪表盘。",
   heroDownload: "下载最新版",
@@ -249,13 +256,14 @@ const zh: Record<MessageKey, string> = {
 
   capabilitiesTitle: "为启动与开服而建",
   capabilitiesLead: "Prism 级实例管理，加上 Host 与 ReqGuard —— 以及桌面应用已交付的其余能力。",
+  experimentalBadge: "实验性",
 
   why1Title: "启动与开服一体",
   why1Body:
     "不必在启动器与独立开服工具之间来回切换。控制台、EULA、配置与端口映射都在 Host 页完成。",
   why2Title: "启动前发现缺依赖",
   why2Body:
-    "ReqGuard 读取模组依赖元数据，在启动前标出缺失库（如 Fabric API），减少反复崩溃。",
+    "ReqGuard 推荐路径用 Modrinth 交叉检查已安装模组。本地 jar 元数据扫描为实验性功能，启动器默认关闭，可在设置中按需开启离线扫描。",
   why3Title: "原生外壳 + 现代 UI",
   why3Body:
     "Tauri 2 提供原生外壳；界面使用 Meta Astryx（与应用相同的设计系统）。窗口层不必背负 Electron 级体积。",
@@ -389,6 +397,11 @@ const zh: Record<MessageKey, string> = {
   changelogViewWebsiteMd: "查看 website/CHANGELOG.md",
   changelogViewLauncherMd: "查看 CHANGELOG.md",
 
+  cl112Summary: "营销站将 ReqGuard 本地元数据扫描标为实验性。",
+  cl112Sec1: "能力",
+  cl112Sec1I1: "ReqGuard 文案改为推荐 Modrinth 权威校验，并将本地 jar 元数据扫描标为实验性",
+  cl112Sec1I2: "ReqGuard 能力行增加「实验性」标识",
+
   cl111Summary: "网站换上新的 Northstar 品牌标识；网站与启动器更新日志拆分。",
   cl111Sec1: "品牌",
   cl111Sec1I1: "下界之星 UI 标识与英雄/背景图替换为新的 Northstar 星标与叠加碎片",
@@ -448,7 +461,7 @@ const de: Record<MessageKey, string> = {
   langZh: "中文",
   langDe: "Deutsch",
 
-  heroPill: "v1.1.1 · Host + ReqGuard",
+  heroPill: "v1.1.2 · Host + ReqGuard",
   heroTagline:
     "Ein Desktop-Minecraft-Launcher mit Host, ReqGuard und Modrinth — wie ein Werkzeug, kein Dashboard.",
   heroDownload: "Neueste Version laden",
@@ -459,13 +472,14 @@ const de: Record<MessageKey, string> = {
   capabilitiesTitle: "Für Start und Host gebaut",
   capabilitiesLead:
     "Instanzverwaltung auf Prism-Niveau, plus Host und ReqGuard — und der Rest der Desktop-App.",
+  experimentalBadge: "Experimentell",
 
   why1Title: "Starten + Hosten in einer App",
   why1Body:
     "Kein Wechsel zwischen Launcher und separatem Host-Tool. Konsole, EULA, Properties und Port-Maps bleiben im Host-Tab.",
   why2Title: "Kaputte Mods vor dem Start erkennen",
   why2Body:
-    "ReqGuard liest Mod-Abhängigkeiten und zeigt fehlende Bibliotheken (z. B. Fabric API) vor dem Start — weniger Crash-Schleifen.",
+    "Der empfohlene ReqGuard-Pfad gleicht installierte JARs mit Modrinth ab. Der lokale Metadaten-Scan ist experimentell, standardmäßig aus und in den Einstellungen optional aktivierbar.",
   why3Title: "Nativer Shell, modernes UI-Kit",
   why3Body:
     "Tauri 2 hält die Shell nativ; die UI nutzt Meta Astryx (dasselbe Designsystem wie die App). Kein Electron-großer Fenster-Runtime.",
@@ -610,6 +624,12 @@ const de: Record<MessageKey, string> = {
   changelogColLauncher: "Launcher",
   changelogViewWebsiteMd: "website/CHANGELOG.md ansehen",
   changelogViewLauncherMd: "CHANGELOG.md ansehen",
+
+  cl112Summary: "Lokaler ReqGuard-Metadaten-Scan auf der Marketingseite als experimentell gekennzeichnet.",
+  cl112Sec1: "Funktionen",
+  cl112Sec1I1:
+    "ReqGuard-Text empfiehlt Modrinth-Checks und kennzeichnet den lokalen JAR-Metadaten-Scan als experimentell",
+  cl112Sec1I2: "Experimentell-Badge in der ReqGuard-Fähigkeitszeile",
 
   cl111Summary: "Neue Northstar-Markenicons auf der Site; Website- und Launcher-Changelogs getrennt.",
   cl111Sec1: "Branding",
