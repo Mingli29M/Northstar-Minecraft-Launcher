@@ -1,4 +1,4 @@
-# Build & publish EUML for Windows, macOS, and Linux via Tauri.
+# Build & publish Northstar for Windows, macOS, and Linux via Tauri.
 # Trigger: push to `release`, or Actions → "Run workflow" (any branch).
 #
 # Repo Settings → Actions → General → Workflow permissions → Read and write
@@ -145,7 +145,7 @@ jobs:
           if [ -n "${APPLE_CERTIFICATE:-}" ] && [ -n "${APPLE_CERTIFICATE_PASSWORD:-}" ]; then
             KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
             CERT_PATH="${RUNNER_TEMP}/apple-certificate.p12"
-            KEYCHAIN_PATH="${RUNNER_TEMP}/euml-signing.keychain-db"
+            KEYCHAIN_PATH="${RUNNER_TEMP}/northstar-signing.keychain-db"
             echo "$APPLE_CERTIFICATE" | base64 -d > "$CERT_PATH"
             security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
             security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -185,28 +185,28 @@ jobs:
           # by Configure macOS code signing. Do not map secrets.APPLE_CERTIFICATE*
           # here — missing secrets become "" and break the macOS bundler.
         with:
-          tagName: euml-v__VERSION__
-          releaseName: EUML v__VERSION__
+          tagName: northstar-v__VERSION__
+          releaseName: Northstar v__VERSION__
           releaseBody: |
-            # EUML v__VERSION__ — Northstar
+            # Northstar v__VERSION__
 
-            First public release. Proprietary build — All Rights Reserved.
+            Proprietary build — All Rights Reserved.
 
             ## Downloads
 
             | Platform | File |
             | --- | --- |
-            | Windows | `EUML_*_x64-setup.exe` / `EUML_*_x64_en-US.msi` |
-            | macOS Apple Silicon | `EUML_*_aarch64.dmg` |
-            | macOS Intel | `EUML_*_x64.dmg` |
-            | Linux | `EUML_*_amd64.AppImage` / `.deb` / `.rpm` |
+            | Windows | `Northstar_*_x64-setup.exe` / `Northstar_*_x64_en-US.msi` |
+            | macOS Apple Silicon | `Northstar_*_aarch64.dmg` |
+            | macOS Intel | `Northstar_*_x64.dmg` |
+            | Linux | `Northstar_*_amd64.AppImage` / `.deb` / `.rpm` |
 
             Full notes are also in **Settings → About** inside the app.
 
             ### macOS Gatekeeper
 
             - **With Apple Developer secrets configured in CI:** builds are Developer ID signed and notarized — open normally.
-            - **Ad-hoc fallback (no secrets):** if macOS says the app is damaged, run `xattr -cr /Applications/EUML.app`, then right-click → Open.
-          releaseDraft: false
+            - **Ad-hoc fallback (no secrets):** if macOS says the app is damaged, run `xattr -cr /Applications/Northstar.app`, then right-click → Open.
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
