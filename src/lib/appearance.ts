@@ -46,6 +46,10 @@ function ensureFontStylesheet(fontKey: string) {
   document.head.appendChild(link);
 }
 
+function cssUrl(value: string): string {
+  return `url("${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}")`;
+}
+
 function resolveBackgroundImage(raw: string | null | undefined): string | null {
   if (!raw?.trim()) return null;
   const value = raw.trim();
@@ -57,13 +61,14 @@ function resolveBackgroundImage(raw: string | null | undefined): string | null {
     value.startsWith("http://asset.localhost") ||
     value.startsWith("https://asset.localhost")
   ) {
-    return `url("${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}")`;
+    return cssUrl(value);
   }
+  // Local files must live under the app wallpapers dir (asset protocol scope).
+  // convertFileSrc fails closed when the path is outside the allow-list.
   try {
-    const src = convertFileSrc(value);
-    return `url("${src}")`;
+    return cssUrl(convertFileSrc(value));
   } catch {
-    return `url("${value.replace(/\\/g, "/")}")`;
+    return null;
   }
 }
 

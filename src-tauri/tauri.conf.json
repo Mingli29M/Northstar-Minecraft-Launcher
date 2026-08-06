@@ -27,16 +27,12 @@
         "enable": true,
         "scope": {
           "allow": [
-            "$APPDATA/**",
-            "$APPLOCALDATA/**",
-            "$HOME/**",
-            "$DOCUMENT/**",
-            "$DOWNLOAD/**",
-            "$DESKTOP/**",
-            "$PICTURE/**",
-            "**"
+            "$APPDATA/euml/wallpapers/**",
+            "$APPLOCALDATA/euml/wallpapers/**",
+            "$APPDATA/euml/meta/avatars/**",
+            "$APPLOCALDATA/euml/meta/avatars/**"
           ],
-          "requireLiteralLeadingDot": false
+          "requireLiteralLeadingDot": true
         }
       }
     }

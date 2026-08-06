@@ -91,6 +91,9 @@ export const api = {
     }),
   openDiskFolder: (name: string) => invoke<void>("open_disk_folder", { name }),
   getSettings: () => cached(SETTINGS, 30_000, () => invoke<LauncherSettings>("get_settings")),
+  /** Copy a picked image into the app wallpapers dir (asset-protocol scoped). */
+  importBackgroundImage: (sourcePath: string) =>
+    invoke<string>("import_background_image", { sourcePath }),
   saveSettings: (settings: LauncherSettings) =>
     invoke<LauncherSettings>("save_settings", { settings }).then((s) => cacheSet(SETTINGS, s)),
 

@@ -133,6 +133,11 @@ fn save_settings(settings: LauncherSettings) -> Result<LauncherSettings, String>
 }
 
 #[tauri::command]
+fn import_background_image(source_path: String) -> Result<String, String> {
+    paths::import_background_image(source_path)
+}
+
+#[tauri::command]
 fn list_accounts() -> Result<Vec<models::Account>, String> {
     auth::list_accounts()
 }
@@ -872,6 +877,7 @@ pub fn run() {
             open_disk_folder,
             get_settings,
             save_settings,
+            import_background_image,
             list_accounts,
             begin_ms_login,
             poll_ms_login,
