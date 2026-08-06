@@ -455,18 +455,38 @@ fn export_mrpack(instance_id: String, dest_path: String) -> Result<String, Strin
 }
 
 #[tauri::command]
-fn reqguard_scan(instance_id: String) -> Result<models::ReqScanResult, String> {
-    reqguard::scan_instance(&instance_id)
+async fn reqguard_scan(instance_id: String) -> Result<models::ReqScanResult, String> {
+    let deep = paths::load_settings()?
+        .reqguard_deep_validation
+        .unwrap_or(true);
+    tauri::async_runtime::spawn_blocking(move || {
+        if deep {
+            reqguard::scan_instance_deep(&instance_id)
+        } else {
+            reqguard::scan_instance(&instance_id)
+        }
+    })
+    .await
+    .map_err(|e| format!("ReqGuard worker failed: {e}"))?
 }
 
 #[tauri::command]
-fn reqguard_resolve(instance_id: String, missing_mod_id: String) -> Result<models::ReqScanResult, String> {
-    reqguard::resolve_missing(instance_id, missing_mod_id)
+async fn reqguard_resolve(
+    instance_id: String,
+    missing_mod_id: String,
+) -> Result<models::ReqScanResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        reqguard::resolve_missing(instance_id, missing_mod_id)
+    })
+    .await
+    .map_err(|e| format!("ReqGuard worker failed: {e}"))?
 }
 
 #[tauri::command]
-fn reqguard_resolve_all(instance_id: String) -> Result<models::ReqScanResult, String> {
-    reqguard::resolve_all_missing(instance_id)
+async fn reqguard_resolve_all(instance_id: String) -> Result<models::ReqScanResult, String> {
+    tauri::async_runtime::spawn_blocking(move || reqguard::resolve_all_missing(instance_id))
+        .await
+        .map_err(|e| format!("ReqGuard worker failed: {e}"))?
 }
 
 #[tauri::command]
@@ -581,6 +601,13 @@ fn read_logs(instance_id: String) -> Result<Vec<models::LogLine>, String> {
 #[tauri::command]
 fn analyze_crash(instance_id: String) -> Result<Vec<models::CrashHint>, String> {
     content::analyze_crash(instance_id)
+}
+
+#[tauri::command]
+fn last_game_exit_analysis(
+    instance_id: String,
+) -> Result<Option<models::GameExitAnalysis>, String> {
+    launch::last_game_exit_analysis(instance_id)
 }
 
 #[tauri::command]
@@ -1038,6 +1065,7 @@ pub fn run() {
             delete_datapack,
             read_logs,
             analyze_crash,
+            last_game_exit_analysis,
             import_foreign_instance,
             import_instance_folder,
             list_servers,

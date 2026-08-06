@@ -21,12 +21,15 @@ Hangar plugins for Paper/Purpur Host and ReqGuard polish.
 ReqGuard Modrinth source-of-truth, crash analysis, Java Temurin download, world backups, and Litematica notice.
 
 ### ReqGuard
-- Local scan hardening: always register jars in `present`, tighter Fabric API umbrella, exotic version ranges warn instead of hard-error
-- Modrinth dependency SoT via SHA1 `version_file` lookup; required deps and incompatibles surface with project ids
+- ReqGuard scans run in a background worker; optional deep validation checks the actual instance jars against Modrinth
+- Canonical mod-id aliases, multi-mod jar ownership filtering, and self-dependency rejection fix false Fabric API and “mod requires itself” reports
+- Local launch gate stays offline and fast; exotic version ranges warn instead of hard-error
+- Modrinth dependency SoT uses batched SHA1 lookup across every jar, then reconciles project slugs with local mod ids so manual/CurseForge installs are recognized
 - Resolve installs by Modrinth project id (with required dependency chain); “Install all missing”
 
 ### Crash analysis
 - Prefer newest crash-report + `latest.log`; extract exception/frames; stable hint codes for UI
+- Monitor Minecraft for its full lifetime, analyze abnormal exits automatically, and persist an in-app message for the next launcher session
 
 ### Prerequisites
 - Java status panel on Download → Game; one-click Adoptium Temurin download into launcher-managed Java dir

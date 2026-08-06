@@ -630,8 +630,15 @@ pub fn read_logs(instance_id: String) -> Result<Vec<LogLine>, String> {
 }
 
 pub fn analyze_crash(instance_id: String) -> Result<Vec<CrashHint>, String> {
+    analyze_crash_since(instance_id, None)
+}
+
+pub fn analyze_crash_since(
+    instance_id: String,
+    since: Option<SystemTime>,
+) -> Result<Vec<CrashHint>, String> {
     let mc = minecraft_dir(&instance_id)?;
-    let Some((_path, text)) = find_crash_source(&mc) else {
+    let Some((_path, text)) = find_crash_source(&mc, since) else {
         return Ok(Vec::new());
     };
 
@@ -744,7 +751,7 @@ pub fn analyze_crash(instance_id: String) -> Result<Vec<CrashHint>, String> {
     Ok(hints)
 }
 
-fn find_crash_source(mc: &Path) -> Option<(PathBuf, String)> {
+fn find_crash_source(mc: &Path, since: Option<SystemTime>) -> Option<(PathBuf, String)> {
     let crash_dir = mc.join("crash-reports");
     if crash_dir.is_dir() {
         let mut files: Vec<_> = fs::read_dir(&crash_dir)
@@ -766,6 +773,9 @@ fn find_crash_source(mc: &Path) -> Option<(PathBuf, String)> {
         });
         files.reverse();
         for entry in files {
+            if !file_is_new_enough(&entry.path(), since) {
+                continue;
+            }
             if let Ok(text) = fs::read_to_string(entry.path()) {
                 if !text.trim().is_empty() {
                     return Some((entry.path(), text));
@@ -775,7 +785,7 @@ fn find_crash_source(mc: &Path) -> Option<(PathBuf, String)> {
     }
 
     let latest = mc.join("logs").join("latest.log");
-    if latest.is_file() {
+    if latest.is_file() && file_is_new_enough(&latest, since) {
         if let Ok(text) = fs::read_to_string(&latest) {
             if !text.trim().is_empty() {
                 return Some((latest, text));
@@ -783,6 +793,16 @@ fn find_crash_source(mc: &Path) -> Option<(PathBuf, String)> {
         }
     }
     None
+}
+
+fn file_is_new_enough(path: &Path, since: Option<SystemTime>) -> bool {
+    let Some(since) = since else {
+        return true;
+    };
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .map(|modified| modified >= since)
+        .unwrap_or(false)
 }
 
 fn extract_exception_type(text: &str) -> Option<String> {
