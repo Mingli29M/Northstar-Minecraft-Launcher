@@ -355,8 +355,8 @@ pub fn fetch_project_slugs(project_ids: &[String]) -> Result<HashMap<String, Str
         .timeout(std::time::Duration::from_secs(20))
         .build()
         .map_err(|e| e.to_string())?
-        .get(url)
-        .header("User-Agent", "Northstar/1.2.0")
+        .get(&url)
+        .header("User-Agent", "Northstar/1.2.1")
         .send()
         .map_err(|e| e.to_string())?
         .error_for_status()
@@ -380,7 +380,7 @@ pub fn fetch_version(version_id: &str) -> Result<ModrinthVersion, String> {
         .map_err(|e| e.to_string())?;
     let data: Value = client
         .get(format!("https://api.modrinth.com/v2/version/{version_id}"))
-        .header("User-Agent", "Northstar/1.2.0")
+        .header("User-Agent", "Northstar/1.2.1")
         .send()
         .map_err(|e| e.to_string())?
         .error_for_status()

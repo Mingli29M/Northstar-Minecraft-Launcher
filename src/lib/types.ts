@@ -179,6 +179,31 @@ export interface HostLiveStats {
   note: string;
 }
 
+export interface HangarProject {
+  slug: string;
+  name: string;
+  description: string;
+  icon_url?: string | null;
+  author: string;
+  category?: string | null;
+  downloads?: number | null;
+}
+
+export interface HangarVersion {
+  name: string;
+  created_at?: string | null;
+  platform_versions: string[];
+  download_url?: string | null;
+  external_url?: string | null;
+  file_name?: string | null;
+}
+
+export interface HostPluginEntry {
+  name: string;
+  enabled: boolean;
+  path: string;
+}
+
 export interface ModEntry {
   file_name: string;
   enabled: boolean;

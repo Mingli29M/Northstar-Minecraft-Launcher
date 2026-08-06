@@ -28,7 +28,7 @@ One desktop app for launch + Modrinth/content + dedicated Host, with ReqGuard pr
 
 ## Capabilities and Constraints
 
-**Capabilities (confirmed):** Launch; Download/versions/loaders; Modrinth + `.mrpack` / Prism-MultiMC import; ReqGuard; Host (console, properties, UPnP→NAT-PMP→PCP); Microsoft / offline / LittleSkin accounts; appearance settings; locales en/zh/de.
+**Capabilities (confirmed):** Launch; Download/versions/loaders; Modrinth + `.mrpack` / Prism-MultiMC import; ReqGuard (local + Modrinth dependency SoT); world backups + auto-backup; Adoptium Java download; Host (console, properties, UPnP→NAT-PMP→PCP, Hangar plugins for Paper/Purpur); Microsoft / offline / LittleSkin accounts; appearance settings; locales en/zh/de.
 
 **Constraints:**
 - Product name: **Northstar** (user-facing). Internal crate/data id may remain `euml`.
