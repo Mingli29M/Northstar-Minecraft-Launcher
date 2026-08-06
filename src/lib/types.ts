@@ -68,6 +68,8 @@ export interface LauncherSettings {
   auto_backup_keep?: number | null;
   /** Include network-backed Modrinth checks in background ReqGuard scans. */
   reqguard_deep_validation?: boolean | null;
+  /** Experimental local jar-metadata scan (off by default; unstable). */
+  reqguard_local_scan?: boolean | null;
 }
 
 export type DedicatedLoader =
@@ -227,6 +229,7 @@ export interface ReqScanResult {
   issues: ReqIssue[];
   mod_count: number;
   scanned_at: string;
+  local_scan?: boolean;
   deep_scan?: boolean;
   duration_ms?: number;
 }

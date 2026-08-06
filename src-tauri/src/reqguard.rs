@@ -53,17 +53,29 @@ impl ModMeta {
     }
 }
 
-/// Fast, offline scan used by the launch gate.
+/// Fast, offline local-metadata scan used by the launch gate when enabled.
 pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
-    scan_instance_with_mode(instance_id, false)
+    scan_instance_with_mode(instance_id, true, false)
 }
 
 /// Full background scan including Modrinth version/dependency validation.
 pub fn scan_instance_deep(instance_id: &str) -> Result<ReqScanResult, String> {
-    scan_instance_with_mode(instance_id, true)
+    scan_instance_with_mode(instance_id, true, true)
 }
 
-fn scan_instance_with_mode(instance_id: &str, deep_scan: bool) -> Result<ReqScanResult, String> {
+/// Scan using the user's Settings toggles (local experimental + deep Modrinth).
+pub fn scan_configured(instance_id: &str) -> Result<ReqScanResult, String> {
+    let settings = crate::paths::load_settings()?;
+    let local = settings.reqguard_local_scan.unwrap_or(false);
+    let deep = settings.reqguard_deep_validation.unwrap_or(true);
+    scan_instance_with_mode(instance_id, local, deep)
+}
+
+fn scan_instance_with_mode(
+    instance_id: &str,
+    local_scan: bool,
+    deep_scan: bool,
+) -> Result<ReqScanResult, String> {
     let started = Instant::now();
     let inst = get_instance(instance_id)?;
     let mods_dir = minecraft_dir(instance_id)?.join("mods");
@@ -174,68 +186,132 @@ fn scan_instance_with_mode(instance_id: &str, deep_scan: bool) -> Result<ReqScan
         present_ids.insert("quilted-fabric-api".into());
     }
 
-    for meta in &metas {
-        // Only enforce depends on the root entry of each physical jar once.
-        // Nested JiJ metas are recorded for provides only (depends already declared on root).
-        if meta.file.contains("!/") {
-            continue;
-        }
-
-        for (dep, range) in &meta.depends {
-            let dep = canonical_mod_id(dep);
-            if meta_provides_id(meta, &dep) {
+    // Local jar-metadata dependency walk is experimental and opt-in.
+    // Jar parsing above still runs so deep Modrinth SoT can reconcile installs.
+    if local_scan {
+        for meta in &metas {
+            // Only enforce depends on the root entry of each physical jar once.
+            // Nested JiJ metas are recorded for provides only (depends already declared on root).
+            if meta.file.contains("!/") {
                 continue;
             }
-            if dep == "minecraft" {
-                if !version_satisfies(&inst.game_version, range) {
+
+            for (dep, range) in &meta.depends {
+                let dep = canonical_mod_id(dep);
+                if meta_provides_id(meta, &dep) {
+                    continue;
+                }
+                if dep == "minecraft" {
+                    if !version_satisfies(&inst.game_version, range) {
+                        issues.push(mk_issue(
+                            IssueSeverity::Error,
+                            meta.id.clone(),
+                            format!(
+                                "{} requires Minecraft {} (instance is {})",
+                                meta.id, range, inst.game_version
+                            ),
+                            None,
+                            Some(meta.file.clone()),
+                            "local",
+                            None,
+                        ));
+                    }
+                    continue;
+                }
+                if is_loader_dep(&dep) {
+                    continue;
+                }
+                if dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
+                    if let Some(ver) = present.get(&dep) {
+                        if !version_satisfies(ver, range) {
+                            let via = provided_by
+                                .get(&dep)
+                                .map(|p| format!(" via `{p}`"))
+                                .unwrap_or_default();
+                            let umbrella_only = (has_fabric_api
+                                && is_fabric_api_module(&dep)
+                                && !present.contains_key(&dep))
+                                || (has_quilted_api
+                                    && is_quilted_api_module(&dep)
+                                    && !present.contains_key(&dep));
+                            if !umbrella_only {
+                                // Unparseable / exotic ranges: warn when the ID is present.
+                                let sev = if range_looks_exotic(range) {
+                                    IssueSeverity::Warn
+                                } else {
+                                    IssueSeverity::Error
+                                };
+                                issues.push(mk_issue(
+                                    sev,
+                                    meta.id.clone(),
+                                    format!("{} needs `{dep}` {range}, found {ver}{via}", meta.id),
+                                    suggest_install_id(
+                                        &dep,
+                                        &provided_by,
+                                        has_fabric_api,
+                                        has_quilted_api,
+                                    ),
+                                    Some(meta.file.clone()),
+                                    "local",
+                                    None,
+                                ));
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                let suggest =
+                    suggest_install_id(&dep, &provided_by, has_fabric_api, has_quilted_api);
+                issues.push(mk_issue(
+                    IssueSeverity::Error,
+                    meta.id.clone(),
+                    format!(
+                        "{} depends on missing `{dep}` ({range}){}",
+                        meta.id,
+                        match &suggest {
+                            Some(s) if s != &dep => format!(" — install `{s}`"),
+                            _ => String::new(),
+                        }
+                    ),
+                    suggest,
+                    Some(meta.file.clone()),
+                    "local",
+                    None,
+                ));
+            }
+
+            for (dep, range) in &meta.recommends {
+                let dep = canonical_mod_id(dep);
+                if meta_provides_id(meta, &dep) {
+                    continue;
+                }
+                if is_loader_dep(&dep) || dep == "minecraft" {
+                    continue;
+                }
+                if !dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
                     issues.push(mk_issue(
-                        IssueSeverity::Error,
+                        IssueSeverity::Warn,
                         meta.id.clone(),
-                        format!(
-                            "{} requires Minecraft {} (instance is {})",
-                            meta.id, range, inst.game_version
-                        ),
-                        None,
+                        format!("{} recommends `{dep}` ({range})", meta.id),
+                        suggest_install_id(&dep, &provided_by, has_fabric_api, has_quilted_api),
                         Some(meta.file.clone()),
                         "local",
                         None,
                     ));
                 }
-                continue;
             }
-            if is_loader_dep(&dep) {
-                continue;
-            }
-            if dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
-                if let Some(ver) = present.get(&dep) {
-                    if !version_satisfies(ver, range) {
-                        let via = provided_by
-                            .get(&dep)
-                            .map(|p| format!(" via `{p}`"))
-                            .unwrap_or_default();
-                        let umbrella_only = (has_fabric_api
-                            && is_fabric_api_module(&dep)
-                            && !present.contains_key(&dep))
-                            || (has_quilted_api
-                                && is_quilted_api_module(&dep)
-                                && !present.contains_key(&dep));
-                        if !umbrella_only {
-                            // Unparseable / exotic ranges: warn when the ID is present.
-                            let sev = if range_looks_exotic(range) {
-                                IssueSeverity::Warn
-                            } else {
-                                IssueSeverity::Error
-                            };
+
+            for (other, range) in &meta.breaks {
+                let other = canonical_mod_id(other);
+                if present_ids.contains(&other) {
+                    if let Some(ver) = present.get(&other) {
+                        if version_satisfies(ver, range) || range == "*" {
                             issues.push(mk_issue(
-                                sev,
+                                IssueSeverity::Error,
                                 meta.id.clone(),
-                                format!("{} needs `{dep}` {range}, found {ver}{via}", meta.id),
-                                suggest_install_id(
-                                    &dep,
-                                    &provided_by,
-                                    has_fabric_api,
-                                    has_quilted_api,
-                                ),
+                                format!("{} breaks `{other}` ({range})", meta.id),
+                                None,
                                 Some(meta.file.clone()),
                                 "local",
                                 None,
@@ -243,81 +319,21 @@ fn scan_instance_with_mode(instance_id: &str, deep_scan: bool) -> Result<ReqScan
                         }
                     }
                 }
-                continue;
             }
 
-            let suggest =
-                suggest_install_id(&dep, &provided_by, has_fabric_api, has_quilted_api);
-            issues.push(mk_issue(
-                IssueSeverity::Error,
-                meta.id.clone(),
-                format!(
-                    "{} depends on missing `{dep}` ({range}){}",
-                    meta.id,
-                    match &suggest {
-                        Some(s) if s != &dep => format!(" — install `{s}`"),
-                        _ => String::new(),
-                    }
-                ),
-                suggest,
-                Some(meta.file.clone()),
-                "local",
-                None,
-            ));
-        }
-
-        for (dep, range) in &meta.recommends {
-            let dep = canonical_mod_id(dep);
-            if meta_provides_id(meta, &dep) {
-                continue;
-            }
-            if is_loader_dep(&dep) || dep == "minecraft" {
-                continue;
-            }
-            if !dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
-                issues.push(mk_issue(
-                    IssueSeverity::Warn,
-                    meta.id.clone(),
-                    format!("{} recommends `{dep}` ({range})", meta.id),
-                    suggest_install_id(&dep, &provided_by, has_fabric_api, has_quilted_api),
-                    Some(meta.file.clone()),
-                    "local",
-                    None,
-                ));
-            }
-        }
-
-        for (other, range) in &meta.breaks {
-            let other = canonical_mod_id(other);
-            if present_ids.contains(&other) {
-                if let Some(ver) = present.get(&other) {
-                    if version_satisfies(ver, range) || range == "*" {
-                        issues.push(mk_issue(
-                            IssueSeverity::Error,
-                            meta.id.clone(),
-                            format!("{} breaks `{other}` ({range})", meta.id),
-                            None,
-                            Some(meta.file.clone()),
-                            "local",
-                            None,
-                        ));
-                    }
+            for (other, range) in &meta.conflicts {
+                let other = canonical_mod_id(other);
+                if present_ids.contains(&other) {
+                    issues.push(mk_issue(
+                        IssueSeverity::Warn,
+                        meta.id.clone(),
+                        format!("{} conflicts with `{other}` ({range})", meta.id),
+                        None,
+                        Some(meta.file.clone()),
+                        "local",
+                        None,
+                    ));
                 }
-            }
-        }
-
-        for (other, range) in &meta.conflicts {
-            let other = canonical_mod_id(other);
-            if present_ids.contains(&other) {
-                issues.push(mk_issue(
-                    IssueSeverity::Warn,
-                    meta.id.clone(),
-                    format!("{} conflicts with `{other}` ({range})", meta.id),
-                    None,
-                    Some(meta.file.clone()),
-                    "local",
-                    None,
-                ));
             }
         }
     }
@@ -341,6 +357,7 @@ fn scan_instance_with_mode(instance_id: &str, deep_scan: bool) -> Result<ReqScan
         issues,
         mod_count: metas.iter().filter(|m| !m.file.contains("!/")).count(),
         scanned_at: Utc::now().to_rfc3339(),
+        local_scan,
         deep_scan,
         duration_ms: started.elapsed().as_millis() as u64,
     })
@@ -1175,27 +1192,47 @@ fn normalize_semver(v: &str) -> String {
     }
 }
 
-pub fn resolve_missing(instance_id: String, missing_mod_id: String) -> Result<ReqScanResult, String> {
+/// Modrinth project ids are 8-char base62; the API also accepts slugs.
+fn looks_like_modrinth_project_id(id: &str) -> bool {
+    let t = id.trim();
+    t.len() == 8 && t.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+fn looks_like_modrinth_slug(id: &str) -> bool {
+    let t = id.trim();
+    t.len() >= 2
+        && t.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+pub fn resolve_missing(
+    instance_id: String,
+    missing_mod_id: String,
+    project_id: Option<String>,
+) -> Result<ReqScanResult, String> {
     let inst = get_instance(&instance_id)?;
     let loader = inst.loader.as_str();
+    let target = project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(missing_mod_id.trim())
+        .to_string();
+    if target.is_empty() {
+        return Err("No Modrinth project or mod id to install".into());
+    }
 
-    // Prefer direct Modrinth project id (from SoT issues) over fuzzy title search.
-    let looks_like_project_id = missing_mod_id.len() >= 8
-        && missing_mod_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-
-    if looks_like_project_id {
-        if install_project_with_deps(
-            &instance_id,
-            &missing_mod_id,
-            &inst.game_version,
-            loader,
-            0,
-        )
-        .is_ok()
-        {
-            return scan_instance(&instance_id);
+    // Prefer direct Modrinth project id / slug install over fuzzy title search.
+    if looks_like_modrinth_project_id(&target) || looks_like_modrinth_slug(&target) {
+        match install_project_with_deps(&instance_id, &target, &inst.game_version, loader, 0) {
+            Ok(_) => return scan_configured(&instance_id),
+            Err(e) => {
+                // Hard-fail for real project ids so the UI can show the error.
+                // Slug/mod-id refs may still resolve via search below.
+                if looks_like_modrinth_project_id(&target) || project_id.is_some() {
+                    return Err(e);
+                }
+            }
         }
     }
 
@@ -1231,28 +1268,71 @@ pub fn resolve_missing(instance_id: String, missing_mod_id: String) -> Result<Re
         loader,
         0,
     )?;
-    scan_instance(&instance_id)
+    scan_configured(&instance_id)
 }
 
-/// Install all missing required deps reported by the latest scan.
+/// Install all missing required deps reported by the configured scan.
 pub fn resolve_all_missing(instance_id: String) -> Result<ReqScanResult, String> {
-    let scan = scan_instance(&instance_id)?;
-    let mut targets: Vec<String> = scan
+    let scan = scan_configured(&instance_id)?;
+    let mut targets: Vec<(Option<String>, String)> = scan
         .issues
         .iter()
         .filter(|i| matches!(i.severity, IssueSeverity::Error))
         .filter_map(|i| {
-            i.project_id
+            let missing = i
+                .missing_mod_id
                 .clone()
-                .or_else(|| i.missing_mod_id.clone())
+                .or_else(|| i.project_id.clone())?;
+            Some((i.project_id.clone(), missing))
         })
         .collect();
-    targets.sort();
+    targets.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+    });
     targets.dedup();
-    for target in targets {
-        let _ = resolve_missing(instance_id.clone(), target);
+    if targets.is_empty() {
+        return Ok(scan);
     }
-    scan_instance(&instance_id)
+
+    let mut errors = Vec::new();
+    let mut ok = 0usize;
+    for (project_id, missing) in targets {
+        match resolve_missing(instance_id.clone(), missing.clone(), project_id) {
+            Ok(_) => ok += 1,
+            Err(e) => errors.push(format!("{missing}: {e}")),
+        }
+    }
+    if ok == 0 {
+        return Err(format!(
+            "Could not install missing dependencies:\n{}",
+            errors.join("\n")
+        ));
+    }
+    let result = scan_configured(&instance_id)?;
+    if !errors.is_empty() {
+        // Partial success — return the rescan so the UI can refresh, but keep
+        // a warning issue so the failure is visible.
+        let mut result = result;
+        result.issues.insert(
+            0,
+            mk_issue(
+                IssueSeverity::Warn,
+                "reqguard",
+                format!(
+                    "Installed {ok} dependencies; {} failed:\n{}",
+                    errors.len(),
+                    errors.join("\n")
+                ),
+                None,
+                None,
+                "resolve",
+                None,
+            ),
+        );
+        return Ok(result);
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

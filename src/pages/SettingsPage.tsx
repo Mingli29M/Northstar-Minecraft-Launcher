@@ -225,6 +225,18 @@ export function SettingsPage() {
                   { value: "off", label: t("reqguardDeepOff") },
                 ]}
               />
+              <Selector
+                label={t("reqguardLocalScan")}
+                description={t("reqguardLocalScanHint")}
+                value={settings.reqguard_local_scan === true ? "on" : "off"}
+                onChange={(v) =>
+                  setSettings({ ...settings, reqguard_local_scan: v === "on" })
+                }
+                options={[
+                  { value: "off", label: t("reqguardLocalOff") },
+                  { value: "on", label: t("reqguardLocalOn") },
+                ]}
+              />
               <TextInput
                 label={t("downloadThreads")}
                 description={t("downloadThreadsHint")}

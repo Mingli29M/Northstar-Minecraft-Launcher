@@ -128,7 +128,7 @@ fn search_modrinth_projects(
     }
     let data: Value = client
         .get(&url)
-        .header("User-Agent", "Northstar/1.1.2")
+        .header("User-Agent", "Northstar/1.2.2")
         .send()
         .map_err(|e| e.to_string())?
         .error_for_status()
@@ -214,7 +214,7 @@ fn fetch_compatible_versions(
     }
     let data: Value = client
         .get(&url)
-        .header("User-Agent", "Northstar/1.1.2")
+        .header("User-Agent", "Northstar/1.2.2")
         .send()
         .map_err(|e| e.to_string())?
         .error_for_status()
@@ -323,7 +323,7 @@ pub fn lookup_versions_by_hashes(
         .map_err(|e| e.to_string())?;
     let data: Value = client
         .post("https://api.modrinth.com/v2/version_files")
-        .header("User-Agent", "Northstar/1.2.0")
+        .header("User-Agent", "Northstar/1.2.2")
         .json(&serde_json::json!({
             "hashes": hashes,
             "algorithm": "sha1"
@@ -356,7 +356,7 @@ pub fn fetch_project_slugs(project_ids: &[String]) -> Result<HashMap<String, Str
         .build()
         .map_err(|e| e.to_string())?
         .get(&url)
-        .header("User-Agent", "Northstar/1.2.1")
+        .header("User-Agent", "Northstar/1.2.2")
         .send()
         .map_err(|e| e.to_string())?
         .error_for_status()
@@ -380,7 +380,7 @@ pub fn fetch_version(version_id: &str) -> Result<ModrinthVersion, String> {
         .map_err(|e| e.to_string())?;
     let data: Value = client
         .get(format!("https://api.modrinth.com/v2/version/{version_id}"))
-        .header("User-Agent", "Northstar/1.2.1")
+        .header("User-Agent", "Northstar/1.2.2")
         .send()
         .map_err(|e| e.to_string())?
         .error_for_status()
@@ -450,7 +450,7 @@ fn download_modrinth_version_file(
     let client = reqwest::blocking::Client::new();
     let data: Value = client
         .get(format!("https://api.modrinth.com/v2/version/{version_id}"))
-        .header("User-Agent", "Northstar/1.1.2")
+        .header("User-Agent", "Northstar/1.2.2")
         .send()
         .map_err(|e| e.to_string())?
         .error_for_status()
@@ -472,7 +472,7 @@ fn download_modrinth_version_file(
     let dest = dest_dir.join(filename);
     let bytes = client
         .get(url)
-        .header("User-Agent", "Northstar/1.1.2")
+        .header("User-Agent", "Northstar/1.2.2")
         .send()
         .map_err(|e| e.to_string())?
         .error_for_status()
@@ -791,7 +791,7 @@ pub fn get_modrinth_project(
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .connect_timeout(std::time::Duration::from_secs(15))
-        .user_agent("Northstar/1.1.2")
+        .user_agent("Northstar/1.2.2")
         .build()
         .map_err(|e| e.to_string())?;
     let data: Value = client

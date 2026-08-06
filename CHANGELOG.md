@@ -4,6 +4,16 @@ Launcher release notes for the desktop app (Tauri). Website marketing changes li
 
 > **Split (1.1.1):** Launcher and website changelogs are maintained as separate files. This file covers the desktop launcher only.
 
+## 1.2.2 — 2026-08-05
+
+ReqGuard install fixes and experimental local-scan toggle.
+
+### ReqGuard
+- Fix Install / Install-all buttons: surface install errors, pass Modrinth `project_id`, and re-scan with the same Settings modes after install
+- Install-all now uses the configured (deep/local) scan instead of a local-only pass that ignored Modrinth SoT issues
+- **Local metadata scan** is opt-in and labeled **Experimental** (off by default); Play is only gated when it is enabled
+- Deep Modrinth validation remains the recommended path and stays in the background worker
+
 ## 1.2.1 — 2026-08-05
 
 Hangar plugins for Paper/Purpur Host and ReqGuard polish.

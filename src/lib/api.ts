@@ -228,8 +228,12 @@ export const api = {
     invoke<string>("export_mrpack", { instanceId, destPath }),
 
   reqguardScan: (instanceId: string) => invoke<ReqScanResult>("reqguard_scan", { instanceId }),
-  reqguardResolve: (instanceId: string, missingModId: string) =>
-    invoke<ReqScanResult>("reqguard_resolve", { instanceId, missingModId }),
+  reqguardResolve: (instanceId: string, missingModId: string, projectId?: string | null) =>
+    invoke<ReqScanResult>("reqguard_resolve", {
+      instanceId,
+      missingModId,
+      projectId: projectId ?? null,
+    }),
   reqguardResolveAll: (instanceId: string) =>
     invoke<ReqScanResult>("reqguard_resolve_all", { instanceId }),
 
