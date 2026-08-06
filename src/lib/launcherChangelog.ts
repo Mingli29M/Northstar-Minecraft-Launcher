@@ -1,6 +1,6 @@
-/** Embedded launcher changelog shown in Settings ??About. */
+/** Embedded launcher changelog shown in Settings → About. */
 
-export const APP_VERSION = "1.2.2";
+export const APP_VERSION = "1.2.3";
 
 export type ChangelogSection = {
   title: string;
@@ -16,6 +16,23 @@ export type ChangelogEntry = {
 };
 
 export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.2.3",
+    date: "2026-08-06",
+    summary:
+      "Security hardening: tightened asset:// file scope and avatar download SSRF controls.",
+    sections: [
+      {
+        title: "Security",
+        items: [
+          "Asset protocol scope limited to app wallpaper and avatar cache dirs (removed $HOME/** and catch-all **)",
+          "Background Browse / drag-and-drop copies images into the app wallpapers folder via import_background_image",
+          "Settings free-text background field rejects absolute filesystem paths (remote / data: URLs still allowed)",
+          "Avatar fetches: HTTPS host allowlist, no redirects, hex UUID checks, and a 2 MiB response size cap (SSRF / DoS mitigation)",
+        ],
+      },
+    ],
+  },
   {
     version: "1.2.2",
     date: "2026-08-05",
@@ -77,7 +94,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
       {
         title: "Prerequisites",
         items: [
-          "Java status + Adoptium Temurin download on Download ??Game",
+          "Java status + Adoptium Temurin download on Download → Game",
           "Modrinth installs pull required dependencies automatically",
         ],
       },
@@ -108,9 +125,9 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
       {
         title: "Bug fixes",
         items: [
-          "Appearance settings apply correctly ??accent, wallpaper, font, UI scale, and panel opacity now target Astryx theme scopes so cards and text update",
+          "Appearance settings apply correctly — accent, wallpaper, font, UI scale, and panel opacity now target Astryx theme scopes so cards and text update",
           "Download / Servers Target version defaults to the instance selected on Launch and stays in sync",
-          "Player head icons load reliably ??fetched and cached in Rust (Crafthead / MC-Heads / Mojang+BMCLAPI) instead of Crafatar in the WebView",
+          "Player head icons load reliably — fetched and cached in Rust (Crafthead / MC-Heads / Mojang+BMCLAPI) instead of Crafatar in the WebView",
         ],
       },
       {
@@ -166,14 +183,14 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
       {
         title: "Appearance",
         items: [
-          "Settings ??Appearance: accent color, background color/image, font family, UI scale",
+          "Settings → Appearance: accent color, background color/image, font family, UI scale",
           "Live CSS preview; persisted in settings.json",
         ],
       },
       {
         title: "Host & network",
         items: [
-          "UPnP ??NAT-PMP ??PCP port-map cascade with clearer join addresses",
+          "UPnP → NAT-PMP → PCP port-map cascade with clearer join addresses",
           "Orphan Java reattach, port-in-use detection, and Host KeepAlive route fix",
         ],
       },
@@ -184,7 +201,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
     date: "2026-08-04",
     codename: "Northstar",
     summary:
-      "First public release of Northstar ??a desktop launcher for Minecraft Java Edition with dedicated hosting, Modrinth browsing, and multi-account support.",
+      "First public release of Northstar — a desktop launcher for Minecraft Java Edition with dedicated hosting, Modrinth browsing, and multi-account support.",
     sections: [
       {
         title: "Launch experience",
@@ -208,7 +225,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
         title: "Mods & content",
         items: [
           "Browse, search, and install mods/modpacks from Modrinth inside the app",
-          "ReqGuard dependency scan before launch ??catch missing Fabric API / libraries early",
+          "ReqGuard dependency scan before launch — catch missing Fabric API / libraries early",
           "Bulk mod update check with selective apply",
           "Config editor with human-readable labels and grouped sections",
         ],
@@ -227,7 +244,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
         items: [
           "Offline accounts with stable generated UUIDs",
           "LittleSkin (authlib-injector) account support for third-party skins",
-          "UI languages: English, ????? and Deutsch",
+          "UI languages: English, 简体中文, and Deutsch",
           "Locale preference stored in launcher settings across restarts",
         ],
       },
@@ -261,7 +278,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
         items: [
           "Launch screen with version select and Start button",
           "Minecraft Java news & patch notes under News",
-          "Settings ??About with embedded launcher changelog",
+          "Settings → About with embedded launcher changelog",
           "Config editor, ReqGuard, Modrinth browse, LittleSkin accounts",
           "Multi-language UI scaffolding (en / zh / de)",
         ],
@@ -271,7 +288,7 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
         items: [
           "macOS Gatekeeper required xattr workaround without ad-hoc signing",
           "Host CPU/RAM meters Windows-only",
-          "Preview builds only ??not a public release channel",
+          "Preview builds only — not a public release channel",
         ],
       },
     ],

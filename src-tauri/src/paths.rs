@@ -54,6 +54,40 @@ pub fn meta_dir() -> Result<PathBuf, String> {
     Ok(p)
 }
 
+pub fn wallpapers_dir() -> Result<PathBuf, String> {
+    let p = app_root()?.join("wallpapers");
+    fs::create_dir_all(&p).map_err(|e| e.to_string())?;
+    Ok(p)
+}
+
+/// Copy a user-selected image into the app wallpapers dir (asset-protocol scoped).
+/// Returns the absolute path of the imported file.
+pub fn import_background_image(source_path: String) -> Result<String, String> {
+    let src = PathBuf::from(source_path.trim());
+    if !src.is_file() {
+        return Err("Background image file not found".into());
+    }
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    const ALLOWED: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"];
+    if !ALLOWED.contains(&ext.as_str()) {
+        return Err(format!("Unsupported image type: .{ext}"));
+    }
+    // Reject oversized sources (DoS / accidental huge files).
+    let meta = fs::metadata(&src).map_err(|e| e.to_string())?;
+    const MAX_BYTES: u64 = 25 * 1024 * 1024;
+    if meta.len() > MAX_BYTES {
+        return Err("Background image is too large (max 25 MiB)".into());
+    }
+    let dest_name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+    let dest = wallpapers_dir()?.join(dest_name);
+    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
 pub fn load_settings() -> Result<LauncherSettings, String> {
     let path = settings_path()?;
     if !path.exists() {

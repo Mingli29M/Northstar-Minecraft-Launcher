@@ -34,13 +34,26 @@ function backgroundPreviewSrc(raw: string | null | undefined): string | null {
   try {
     return convertFileSrc(value);
   } catch {
-    return value;
+    return null;
   }
+}
+
+/** Free-text field: allow remote/data URLs only — local files must go through Browse/import. */
+function sanitizeBackgroundTextInput(value: string): string | null {
+  const v = value.trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v) || v.startsWith("data:") || v.startsWith("blob:")) return v;
+  // Reject absolute filesystem paths typed by hand (arbitrary local file read via asset://).
+  if (v.startsWith("/") || /^[A-Za-z]:[\\/]/.test(v) || v.startsWith("\\\\")) return null;
+  if (v.startsWith("asset:") || v.includes("asset.localhost")) return v;
+  return null;
 }
 
 async function fileToBackgroundValue(file: File): Promise<string> {
   const withPath = file as File & { path?: string };
-  if (withPath.path) return withPath.path;
+  if (withPath.path) {
+    return api.importBackgroundImage(withPath.path);
+  }
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result ?? ""));
@@ -131,7 +144,10 @@ export function SettingsPage() {
         multiple: false,
         filters: [{ name: "Image", extensions: IMAGE_EXTS }],
       });
-      if (typeof path === "string" && path) setBackgroundImage(path);
+      if (typeof path === "string" && path) {
+        const imported = await api.importBackgroundImage(path);
+        setBackgroundImage(imported);
+      }
     } catch {
       /* dialog cancelled / unavailable */
     }
@@ -392,7 +408,15 @@ export function SettingsPage() {
                       ? "(embedded image)"
                       : (settings.background_image ?? "")
                   }
-                  onChange={(v) => setBackgroundImage(v || null)}
+                  onChange={(v) => {
+                    if (!v) {
+                      setBackgroundImage(null);
+                      return;
+                    }
+                    // Keep displaying typed text only when it is a safe URL scheme.
+                    const safe = sanitizeBackgroundTextInput(v);
+                    if (safe) setBackgroundImage(safe);
+                  }}
                 />
               </VStack>
               <Selector

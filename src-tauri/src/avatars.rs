@@ -3,6 +3,10 @@
 //! External avatar CDNs (Crafatar, etc.) are often blocked or flaky from the
 //! WebView. Fetching in Rust with multiple fallbacks and returning a data URL
 //! makes heads load with or without VPN.
+//!
+//! Security: only HTTPS GETs to an allowlisted set of hosts are performed.
+//! Profile-supplied skin URLs are validated the same way (SSRF mitigation).
+//! Response bodies are capped and must look like PNG.
 
 use crate::paths::meta_dir;
 use serde::Deserialize;
@@ -14,6 +18,8 @@ use std::time::{Duration, SystemTime};
 
 const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const STEVE_UUID: &str = "8667ba71b85a4004af54457a9734eed7";
+/// Max bytes accepted for any avatar/skin download (PNG skins are tiny).
+const MAX_DOWNLOAD_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 struct ProfileResponse {
@@ -101,8 +107,10 @@ fn to_data_url(bytes: &[u8]) -> String {
 
 fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
-        .user_agent("NorthstarLauncher/1.1.2")
+        .user_agent("NorthstarLauncher/1.2.3")
         .timeout(Duration::from_secs(12))
+        // Do not follow redirects to arbitrary hosts (SSRF).
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())
 }
@@ -111,12 +119,57 @@ fn looks_like_png(bytes: &[u8]) -> bool {
     bytes.len() > 8 && bytes.starts_with(&[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'])
 }
 
+/// Hosts we are willing to contact for avatar / skin bytes.
+fn is_allowed_download_host(host: &str) -> bool {
+    let h = host.to_ascii_lowercase();
+    matches!(
+        h.as_str(),
+        "textures.minecraft.net"
+            | "sessionserver.mojang.com"
+            | "crafthead.net"
+            | "mc-heads.net"
+            | "mineatar.io"
+            | "crafatar.com"
+            | "littleskin.cn"
+            | "bmclapi2.bangbang93.com"
+    ) || h.ends_with(".littleskin.cn")
+}
+
+fn is_allowed_download_url(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    if parsed.scheme() != "https" {
+        return false;
+    }
+    // Block credentials / userinfo in URL.
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return false;
+    }
+    match parsed.host_str() {
+        Some(host) => is_allowed_download_host(host),
+        None => false,
+    }
+}
+
 fn fetch_bytes(client: &reqwest::blocking::Client, url: &str) -> Option<Vec<u8>> {
+    if !is_allowed_download_url(url) {
+        return None;
+    }
     let resp = client.get(url).send().ok()?;
     if !resp.status().is_success() {
         return None;
     }
-    let bytes = resp.bytes().ok()?.to_vec();
+    if let Some(len) = resp.content_length() {
+        if len as usize > MAX_DOWNLOAD_BYTES {
+            return None;
+        }
+    }
+    let bytes = resp.bytes().ok()?;
+    if bytes.len() > MAX_DOWNLOAD_BYTES {
+        return None;
+    }
+    let bytes = bytes.to_vec();
     if looks_like_png(&bytes) {
         Some(bytes)
     } else {
@@ -126,6 +179,11 @@ fn fetch_bytes(client: &reqwest::blocking::Client, url: &str) -> Option<Vec<u8>>
 
 fn normalize_uuid(uuid: &str) -> String {
     uuid.replace('-', "").to_lowercase()
+}
+
+/// Only accept Mojang-style hex UUIDs (32 hex chars) for path interpolation.
+fn is_hex_uuid(id: &str) -> bool {
+    id.len() == 32 && id.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn candidate_urls(kind: &str, uuid: &str, username: &str) -> Vec<String> {
@@ -145,7 +203,7 @@ fn candidate_urls(kind: &str, uuid: &str, username: &str) -> Vec<String> {
                     urlencoding::encode(name)
                 ));
             }
-            if !id.is_empty() && id != "0".repeat(32) {
+            if is_hex_uuid(&id) && !id.chars().all(|c| c == '0') {
                 urls.push(format!("https://littleskin.cn/avatar/{id}"));
             }
         }
@@ -158,7 +216,7 @@ fn candidate_urls(kind: &str, uuid: &str, username: &str) -> Vec<String> {
             ));
         }
         _ => {
-            if !id.is_empty() && id.len() >= 32 && !id.chars().all(|c| c == '0') {
+            if is_hex_uuid(&id) && !id.chars().all(|c| c == '0') {
                 urls.push(format!("https://crafthead.net/avatar/{id}/64"));
                 urls.push(format!("https://mc-heads.net/avatar/{id}/64"));
                 urls.push(format!("https://mineatar.io/face/{id}?scale=8&overlay=true"));
@@ -183,7 +241,7 @@ fn candidate_urls(kind: &str, uuid: &str, username: &str) -> Vec<String> {
 
 fn profile_urls(kind: &str, uuid: &str) -> Vec<String> {
     let id = normalize_uuid(uuid);
-    if id.is_empty() || id.len() < 32 {
+    if !is_hex_uuid(&id) {
         return Vec::new();
     }
     match kind {
@@ -199,15 +257,32 @@ fn profile_urls(kind: &str, uuid: &str) -> Vec<String> {
 }
 
 fn skin_url_from_profile(client: &reqwest::blocking::Client, profile_url: &str) -> Option<String> {
+    if !is_allowed_download_url(profile_url) {
+        return None;
+    }
     let resp = client.get(profile_url).send().ok()?;
     if !resp.status().is_success() {
         return None;
     }
-    let profile: ProfileResponse = resp.json().ok()?;
+    if let Some(len) = resp.content_length() {
+        if len as usize > MAX_DOWNLOAD_BYTES {
+            return None;
+        }
+    }
+    let body = resp.bytes().ok()?;
+    if body.len() > MAX_DOWNLOAD_BYTES {
+        return None;
+    }
+    let profile: ProfileResponse = serde_json::from_slice(&body).ok()?;
     let prop = profile.properties.into_iter().find(|p| p.name == "textures")?;
     let decoded = base64_decode(&prop.value)?;
     let payload: TexturePayload = serde_json::from_slice(&decoded).ok()?;
-    payload.textures.skin.map(|s| s.url)
+    let url = payload.textures.skin.map(|s| s.url)?;
+    if is_allowed_download_url(&url) {
+        Some(url)
+    } else {
+        None
+    }
 }
 
 /// Minimal base64 decode (std-only) for Mojang texture payloads.
@@ -344,4 +419,33 @@ pub fn resolve_account_avatar(
 
     let _ = fs::write(&path, &png);
     Ok(Some(to_data_url(&png)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_ssrf_hosts() {
+        assert!(!is_allowed_download_url("http://textures.minecraft.net/texture/x"));
+        assert!(!is_allowed_download_url("https://evil.example/x"));
+        assert!(!is_allowed_download_url("https://127.0.0.1/x"));
+        assert!(!is_allowed_download_url("https://localhost/x"));
+        assert!(!is_allowed_download_url(
+            "https://textures.minecraft.net@evil.com/x"
+        ));
+        assert!(is_allowed_download_url(
+            "https://textures.minecraft.net/texture/abc"
+        ));
+        assert!(is_allowed_download_url(
+            "https://bmclapi2.bangbang93.com/textures/abc"
+        ));
+    }
+
+    #[test]
+    fn hex_uuid_check() {
+        assert!(is_hex_uuid(STEVE_UUID));
+        assert!(!is_hex_uuid("../etc/passwd"));
+        assert!(!is_hex_uuid("abc"));
+    }
 }

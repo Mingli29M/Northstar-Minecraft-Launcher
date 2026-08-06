@@ -372,7 +372,7 @@ pub fn add_littleskin_account(email: String, password: String) -> Result<Vec<Acc
         .post("https://littleskin.cn/api/yggdrasil/authserver/authenticate")
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
-        .header("User-Agent", "Northstar/1.1.2")
+        .header("User-Agent", "Northstar/1.2.3")
         .json(&body)
         .send()
         .map_err(|e| e.to_string())?;
