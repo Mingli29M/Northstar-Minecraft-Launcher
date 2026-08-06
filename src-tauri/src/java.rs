@@ -12,7 +12,10 @@ use walkdir::WalkDir;
 use zip::ZipArchive;
 
 pub fn detect_java_installs() -> Result<Vec<String>, String> {
-    let mut found = Vec::new();
+    // Annotate explicitly: on non-Windows the first use is `found.iter()` before
+    // any `push`, so `Vec::new()` alone fails type inference (E0282) and breaks
+    // Linux/macOS publish even when Windows builds succeed.
+    let mut found: Vec<String> = Vec::new();
     #[cfg(target_os = "windows")]
     {
         let candidates = [
