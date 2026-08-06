@@ -1,5 +1,5 @@
 # Build & publish EUML for Windows, macOS, and Linux via Tauri.
-# Trigger: push to `release`, or Actions → "Run workflow".
+# Trigger: push to `release`, or Actions → "Run workflow" (any branch).
 #
 # Repo Settings → Actions → General → Workflow permissions → Read and write
 # (needed so tauri-action can create a GitHub Release).
@@ -58,6 +58,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      # Prefetch AppImage bundler tools into Tauri's cache so a flaky GitHub
+      # CDN blip during `tauri build` does not fail the whole Linux job with
+      # "Connection reset by peer" while downloading linuxdeploy / AppRun.
+      - name: Prefetch Linux AppImage bundler tools
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          set -euo pipefail
+          CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          mkdir -p "$CACHE"
+          download() {
+            local url="$1" dest="$2"
+            if [ -s "$dest" ]; then
+              echo "Already present: $dest"
+              return 0
+            fi
+            echo "Downloading $url"
+            curl --fail --location --retry 12 --retry-all-errors --retry-delay 2 \
+              --connect-timeout 20 --max-time 300 \
+              --output "$dest.partial" "$url"
+            mv "$dest.partial" "$dest"
+            chmod +x "$dest"
+          }
+          download \
+            "https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64" \
+            "$CACHE/AppRun-x86_64"
+          download \
+            "https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage" \
+            "$CACHE/linuxdeploy-x86_64.AppImage"
+          # Optional GTK plugin script (bundler may fetch if missing).
+          download \
+            "https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" \
+            "$CACHE/linuxdeploy-plugin-gtk.sh" || true
+          ls -la "$CACHE"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -98,6 +132,16 @@ jobs:
           APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
         run: |
           set -euo pipefail
+          # Multiline-safe GITHUB_ENV export (avoids injection on special chars).
+          export_env() {
+            local name="$1"
+            local value="$2"
+            {
+              echo "${name}<<EOF_NS_ENV"
+              printf '%s\n' "$value"
+              echo "EOF_NS_ENV"
+            } >> "$GITHUB_ENV"
+          }
           if [ -n "${APPLE_CERTIFICATE:-}" ] && [ -n "${APPLE_CERTIFICATE_PASSWORD:-}" ]; then
             KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
             CERT_PATH="${RUNNER_TEMP}/apple-certificate.p12"
@@ -111,25 +155,25 @@ jobs:
             security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
             rm -f "$CERT_PATH"
             if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
-              echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+              export_env APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY"
             else
               IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)"
               if [ -z "$IDENTITY" ]; then
                 echo "Developer ID Application identity not found in imported certificate" >&2
                 exit 1
               fi
-              echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+              export_env APPLE_SIGNING_IDENTITY "$IDENTITY"
             fi
             # Export notarization credentials only when present (empty → skip).
-            if [ -n "${APPLE_ID:-}" ]; then echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"; fi
-            if [ -n "${APPLE_PASSWORD:-}" ]; then echo "APPLE_PASSWORD=$APPLE_PASSWORD" >> "$GITHUB_ENV"; fi
-            if [ -n "${APPLE_TEAM_ID:-}" ]; then echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"; fi
-            if [ -n "${APPLE_API_ISSUER:-}" ]; then echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"; fi
-            if [ -n "${APPLE_API_KEY:-}" ]; then echo "APPLE_API_KEY=$APPLE_API_KEY" >> "$GITHUB_ENV"; fi
-            if [ -n "${APPLE_API_KEY_PATH:-}" ]; then echo "APPLE_API_KEY_PATH=$APPLE_API_KEY_PATH" >> "$GITHUB_ENV"; fi
+            if [ -n "${APPLE_ID:-}" ]; then export_env APPLE_ID "$APPLE_ID"; fi
+            if [ -n "${APPLE_PASSWORD:-}" ]; then export_env APPLE_PASSWORD "$APPLE_PASSWORD"; fi
+            if [ -n "${APPLE_TEAM_ID:-}" ]; then export_env APPLE_TEAM_ID "$APPLE_TEAM_ID"; fi
+            if [ -n "${APPLE_API_ISSUER:-}" ]; then export_env APPLE_API_ISSUER "$APPLE_API_ISSUER"; fi
+            if [ -n "${APPLE_API_KEY:-}" ]; then export_env APPLE_API_KEY "$APPLE_API_KEY"; fi
+            if [ -n "${APPLE_API_KEY_PATH:-}" ]; then export_env APPLE_API_KEY_PATH "$APPLE_API_KEY_PATH"; fi
             echo "Mac signing mode: Developer ID (cert imported into temp keychain)"
           else
-            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            export_env APPLE_SIGNING_IDENTITY "-"
             echo "Mac signing mode: ad-hoc (add APPLE_CERTIFICATE secrets for permanent Gatekeeper fix)"
           fi
 
