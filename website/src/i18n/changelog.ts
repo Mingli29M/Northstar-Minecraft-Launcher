@@ -8,6 +8,17 @@ export function useLocalizedWebsiteChangelog(): ChangelogEntry[] {
   const { t } = useI18n();
   return [
     {
+      version: "1.1.2",
+      date: "2026-08-05",
+      summary: t("cl112Summary"),
+      sections: [
+        {
+          title: t("cl112Sec1"),
+          items: [t("cl112Sec1I1"), t("cl112Sec1I2")],
+        },
+      ],
+    },
+    {
       version: "1.1.1",
       date: "2026-08-04",
       summary: t("cl111Summary"),

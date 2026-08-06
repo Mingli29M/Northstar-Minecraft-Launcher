@@ -1,6 +1,6 @@
 /** Shared changelog types and current app version for the marketing site. */
 
-export const APP_VERSION = "1.1.1";
+export const APP_VERSION = "1.1.2";
 
 export type ChangelogSection = {
   title: string;
