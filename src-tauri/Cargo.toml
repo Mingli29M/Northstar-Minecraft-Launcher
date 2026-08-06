@@ -38,6 +38,7 @@ open = "5"
 urlencoding = "2"
 fastnbt = "2.6.2"
 flate2 = "1"
+tar = "0.4"
 igd = "0.12"
 crab_nat = "0.8"
 image = { version = "0.25", default-features = false, features = ["png"] }

@@ -66,6 +66,10 @@ export interface LauncherSettings {
   auto_backup_worlds?: boolean | null;
   /** Max automatic world backups to keep per world. */
   auto_backup_keep?: number | null;
+  /** Include network-backed Modrinth checks in background ReqGuard scans. */
+  reqguard_deep_validation?: boolean | null;
+  /** Experimental local jar-metadata scan (off by default; unstable). */
+  reqguard_local_scan?: boolean | null;
 }
 
 export type DedicatedLoader =
@@ -177,6 +181,31 @@ export interface HostLiveStats {
   note: string;
 }
 
+export interface HangarProject {
+  slug: string;
+  name: string;
+  description: string;
+  icon_url?: string | null;
+  author: string;
+  category?: string | null;
+  downloads?: number | null;
+}
+
+export interface HangarVersion {
+  name: string;
+  created_at?: string | null;
+  platform_versions: string[];
+  download_url?: string | null;
+  external_url?: string | null;
+  file_name?: string | null;
+}
+
+export interface HostPluginEntry {
+  name: string;
+  enabled: boolean;
+  path: string;
+}
+
 export interface ModEntry {
   file_name: string;
   enabled: boolean;
@@ -192,12 +221,17 @@ export interface ReqIssue {
   message: string;
   missing_mod_id: string | null;
   source_file: string | null;
+  source?: string | null;
+  project_id?: string | null;
 }
 
 export interface ReqScanResult {
   issues: ReqIssue[];
   mod_count: number;
   scanned_at: string;
+  local_scan?: boolean;
+  deep_scan?: boolean;
+  duration_ms?: number;
 }
 
 export interface ContentItem {
@@ -205,6 +239,25 @@ export interface ContentItem {
   path: string;
   kind: string;
   icon_path?: string | null;
+}
+
+export interface WorldBackup {
+  name: string;
+  path: string;
+  created_at: string;
+}
+
+export interface WorldInfo {
+  name: string;
+  path: string;
+  backup_count: number;
+  has_backups: boolean;
+  icon_path?: string | null;
+}
+
+export interface LitematicaInfo {
+  present: boolean;
+  schematics_path: string;
 }
 
 export interface WorldSettings {
@@ -244,9 +297,32 @@ export interface LogLine {
 }
 
 export interface CrashHint {
+  code: string;
   title: string;
   detail: string;
   severity: string;
+  params?: string[];
+}
+
+export interface GameExitAnalysis {
+  instance_id: string;
+  exit_code: number | null;
+  success: boolean;
+  summary: string;
+  occurred_at: string;
+  hints: CrashHint[];
+}
+
+export interface JavaInstall {
+  path: string;
+  major: number;
+}
+
+export interface JavaStatus {
+  required_major: number;
+  detected: JavaInstall[];
+  satisfied: boolean;
+  recommended_path: string | null;
 }
 
 export interface VersionInfo {

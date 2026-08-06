@@ -1,6 +1,9 @@
 use crate::instances::get_instance;
 use crate::models::{IssueSeverity, LoaderKind, ReqIssue, ReqScanResult};
-use crate::mods_platform::{install_mod, search_mods};
+use crate::mods_platform::{
+    fetch_project_slugs, file_sha1_hex, install_project_with_deps, lookup_versions_by_hashes,
+    search_mods,
+};
 use crate::paths::minecraft_dir;
 use chrono::Utc;
 use serde_json::Value;
@@ -8,7 +11,28 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::Path;
+use std::time::Instant;
 use zip::ZipArchive;
+
+fn mk_issue(
+    severity: IssueSeverity,
+    mod_id: impl Into<String>,
+    message: impl Into<String>,
+    missing_mod_id: Option<String>,
+    source_file: Option<String>,
+    source: &str,
+    project_id: Option<String>,
+) -> ReqIssue {
+    ReqIssue {
+        severity,
+        mod_id: mod_id.into(),
+        message: message.into(),
+        missing_mod_id,
+        source_file,
+        source: Some(source.into()),
+        project_id,
+    }
+}
 
 #[derive(Debug, Clone)]
 struct ModMeta {
@@ -29,7 +53,30 @@ impl ModMeta {
     }
 }
 
+/// Fast, offline local-metadata scan used by the launch gate when enabled.
 pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
+    scan_instance_with_mode(instance_id, true, false)
+}
+
+/// Full background scan including Modrinth version/dependency validation.
+pub fn scan_instance_deep(instance_id: &str) -> Result<ReqScanResult, String> {
+    scan_instance_with_mode(instance_id, true, true)
+}
+
+/// Scan using the user's Settings toggles (local experimental + deep Modrinth).
+pub fn scan_configured(instance_id: &str) -> Result<ReqScanResult, String> {
+    let settings = crate::paths::load_settings()?;
+    let local = settings.reqguard_local_scan.unwrap_or(false);
+    let deep = settings.reqguard_deep_validation.unwrap_or(true);
+    scan_instance_with_mode(instance_id, local, deep)
+}
+
+fn scan_instance_with_mode(
+    instance_id: &str,
+    local_scan: bool,
+    deep_scan: bool,
+) -> Result<ReqScanResult, String> {
+    let started = Instant::now();
     let inst = get_instance(instance_id)?;
     let mods_dir = minecraft_dir(instance_id)?.join("mods");
     fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
@@ -61,16 +108,26 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
                 metas.extend(list);
             }
             Err(e) => {
-                if let Some(meta) = filename_fallback_meta(&name) {
-                    metas.push(meta);
-                }
-                issues.push(ReqIssue {
-                    severity: IssueSeverity::Warn,
-                    mod_id: jar_stem_id(&name),
-                    message: format!("Could not read metadata: {name} — {e}"),
-                    missing_mod_id: None,
-                    source_file: Some(name),
-                });
+                // Always register jar in `present` so UI-listed mods aren't reported missing.
+                metas.push(filename_fallback_meta(&name).unwrap_or_else(|| ModMeta {
+                    id: jar_stem_id(&name),
+                    version: "*".into(),
+                    file: name.clone(),
+                    provides: Vec::new(),
+                    depends: HashMap::new(),
+                    recommends: HashMap::new(),
+                    breaks: HashMap::new(),
+                    conflicts: HashMap::new(),
+                }));
+                issues.push(mk_issue(
+                    IssueSeverity::Warn,
+                    jar_stem_id(&name),
+                    format!("Could not read metadata: {name} — {e}"),
+                    None,
+                    Some(name),
+                    "local",
+                    None,
+                ));
             }
         }
     }
@@ -81,11 +138,11 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
     let mut provided_by: HashMap<String, String> = HashMap::new();
     for meta in &metas {
         for id in meta.all_ids() {
-            let id = id.to_ascii_lowercase();
+            let id = canonical_mod_id(id);
             present
                 .entry(id.clone())
                 .or_insert_with(|| meta.version.clone());
-            if id != meta.id {
+            if id != canonical_mod_id(&meta.id) {
                 provided_by
                     .entry(id)
                     .or_insert_with(|| meta.id.clone());
@@ -116,7 +173,8 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
         LoaderKind::Vanilla => {}
     }
 
-    let has_fabric_api = present.contains_key("fabric-api");
+    let has_fabric_api = present.contains_key("fabric-api")
+        || metas.iter().any(|m| filename_looks_like_fabric_api(&m.file));
     let has_quilted_api =
         present.contains_key("quilted_fabric_api") || present.contains_key("quilted-fabric-api");
     if has_fabric_api {
@@ -128,144 +186,415 @@ pub fn scan_instance(instance_id: &str) -> Result<ReqScanResult, String> {
         present_ids.insert("quilted-fabric-api".into());
     }
 
-    for meta in &metas {
-        // Only enforce depends on the root entry of each physical jar once.
-        // Nested JiJ metas are recorded for provides only (depends already declared on root).
-        if meta.file.contains("!/") {
-            continue;
-        }
+    // Local jar-metadata dependency walk is experimental and opt-in.
+    // Jar parsing above still runs so deep Modrinth SoT can reconcile installs.
+    if local_scan {
+        for meta in &metas {
+            // Only enforce depends on the root entry of each physical jar once.
+            // Nested JiJ metas are recorded for provides only (depends already declared on root).
+            if meta.file.contains("!/") {
+                continue;
+            }
 
-        for (dep, range) in &meta.depends {
-            let dep = dep.to_ascii_lowercase();
-            if dep == "minecraft" {
-                if !version_satisfies(&inst.game_version, range) {
-                    issues.push(ReqIssue {
-                        severity: IssueSeverity::Error,
-                        mod_id: meta.id.clone(),
-                        message: format!(
-                            "{} requires Minecraft {} (instance is {})",
-                            meta.id, range, inst.game_version
-                        ),
-                        missing_mod_id: None,
-                        source_file: Some(meta.file.clone()),
-                    });
+            for (dep, range) in &meta.depends {
+                let dep = canonical_mod_id(dep);
+                if meta_provides_id(meta, &dep) {
+                    continue;
                 }
-                continue;
+                if dep == "minecraft" {
+                    if !version_satisfies(&inst.game_version, range) {
+                        issues.push(mk_issue(
+                            IssueSeverity::Error,
+                            meta.id.clone(),
+                            format!(
+                                "{} requires Minecraft {} (instance is {})",
+                                meta.id, range, inst.game_version
+                            ),
+                            None,
+                            Some(meta.file.clone()),
+                            "local",
+                            None,
+                        ));
+                    }
+                    continue;
+                }
+                if is_loader_dep(&dep) {
+                    continue;
+                }
+                if dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
+                    if let Some(ver) = present.get(&dep) {
+                        if !version_satisfies(ver, range) {
+                            let via = provided_by
+                                .get(&dep)
+                                .map(|p| format!(" via `{p}`"))
+                                .unwrap_or_default();
+                            let umbrella_only = (has_fabric_api
+                                && is_fabric_api_module(&dep)
+                                && !present.contains_key(&dep))
+                                || (has_quilted_api
+                                    && is_quilted_api_module(&dep)
+                                    && !present.contains_key(&dep));
+                            if !umbrella_only {
+                                // Unparseable / exotic ranges: warn when the ID is present.
+                                let sev = if range_looks_exotic(range) {
+                                    IssueSeverity::Warn
+                                } else {
+                                    IssueSeverity::Error
+                                };
+                                issues.push(mk_issue(
+                                    sev,
+                                    meta.id.clone(),
+                                    format!("{} needs `{dep}` {range}, found {ver}{via}", meta.id),
+                                    suggest_install_id(
+                                        &dep,
+                                        &provided_by,
+                                        has_fabric_api,
+                                        has_quilted_api,
+                                    ),
+                                    Some(meta.file.clone()),
+                                    "local",
+                                    None,
+                                ));
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                let suggest =
+                    suggest_install_id(&dep, &provided_by, has_fabric_api, has_quilted_api);
+                issues.push(mk_issue(
+                    IssueSeverity::Error,
+                    meta.id.clone(),
+                    format!(
+                        "{} depends on missing `{dep}` ({range}){}",
+                        meta.id,
+                        match &suggest {
+                            Some(s) if s != &dep => format!(" — install `{s}`"),
+                            _ => String::new(),
+                        }
+                    ),
+                    suggest,
+                    Some(meta.file.clone()),
+                    "local",
+                    None,
+                ));
             }
-            if is_loader_dep(&dep) {
-                continue;
+
+            for (dep, range) in &meta.recommends {
+                let dep = canonical_mod_id(dep);
+                if meta_provides_id(meta, &dep) {
+                    continue;
+                }
+                if is_loader_dep(&dep) || dep == "minecraft" {
+                    continue;
+                }
+                if !dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
+                    issues.push(mk_issue(
+                        IssueSeverity::Warn,
+                        meta.id.clone(),
+                        format!("{} recommends `{dep}` ({range})", meta.id),
+                        suggest_install_id(&dep, &provided_by, has_fabric_api, has_quilted_api),
+                        Some(meta.file.clone()),
+                        "local",
+                        None,
+                    ));
+                }
             }
-            if dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
-                if let Some(ver) = present.get(&dep) {
-                    if !version_satisfies(ver, range) {
-                        let via = provided_by
-                            .get(&dep)
-                            .map(|p| format!(" via `{p}`"))
-                            .unwrap_or_default();
-                        // Skip version mismatch when dep is only satisfied via umbrella.
-                        let umbrella_only = (has_fabric_api
-                            && is_fabric_api_module(&dep)
-                            && !present.contains_key(&dep))
-                            || (has_quilted_api
-                                && is_quilted_api_module(&dep)
-                                && !present.contains_key(&dep));
-                        if !umbrella_only {
-                            issues.push(ReqIssue {
-                                severity: IssueSeverity::Error,
-                                mod_id: meta.id.clone(),
-                                message: format!(
-                                    "{} needs `{dep}` {range}, found {ver}{via}",
-                                    meta.id
-                                ),
-                                missing_mod_id: suggest_install_id(
-                                    &dep,
-                                    &provided_by,
-                                    has_fabric_api,
-                                    has_quilted_api,
-                                ),
-                                source_file: Some(meta.file.clone()),
-                            });
+
+            for (other, range) in &meta.breaks {
+                let other = canonical_mod_id(other);
+                if present_ids.contains(&other) {
+                    if let Some(ver) = present.get(&other) {
+                        if version_satisfies(ver, range) || range == "*" {
+                            issues.push(mk_issue(
+                                IssueSeverity::Error,
+                                meta.id.clone(),
+                                format!("{} breaks `{other}` ({range})", meta.id),
+                                None,
+                                Some(meta.file.clone()),
+                                "local",
+                                None,
+                            ));
                         }
                     }
                 }
-                continue;
             }
 
-            let suggest =
-                suggest_install_id(&dep, &provided_by, has_fabric_api, has_quilted_api);
-            issues.push(ReqIssue {
-                severity: IssueSeverity::Error,
-                mod_id: meta.id.clone(),
-                message: format!(
-                    "{} depends on missing `{dep}` ({range}){}",
-                    meta.id,
-                    match &suggest {
-                        Some(s) if s != &dep => format!(" — install `{s}`"),
-                        _ => String::new(),
-                    }
-                ),
-                missing_mod_id: suggest,
-                source_file: Some(meta.file.clone()),
-            });
-        }
-
-        for (dep, range) in &meta.recommends {
-            let dep = dep.to_ascii_lowercase();
-            if is_loader_dep(&dep) || dep == "minecraft" {
-                continue;
-            }
-            if !dep_satisfied(&dep, &present_ids, has_fabric_api, has_quilted_api) {
-                issues.push(ReqIssue {
-                    severity: IssueSeverity::Warn,
-                    mod_id: meta.id.clone(),
-                    message: format!("{} recommends `{dep}` ({range})", meta.id),
-                    missing_mod_id: suggest_install_id(
-                        &dep,
-                        &provided_by,
-                        has_fabric_api,
-                        has_quilted_api,
-                    ),
-                    source_file: Some(meta.file.clone()),
-                });
-            }
-        }
-
-        for (other, range) in &meta.breaks {
-            let other = other.to_ascii_lowercase();
-            if present_ids.contains(&other) {
-                if let Some(ver) = present.get(&other) {
-                    if version_satisfies(ver, range) || range == "*" {
-                        issues.push(ReqIssue {
-                            severity: IssueSeverity::Error,
-                            mod_id: meta.id.clone(),
-                            message: format!("{} breaks `{other}` ({range})", meta.id),
-                            missing_mod_id: None,
-                            source_file: Some(meta.file.clone()),
-                        });
-                    }
+            for (other, range) in &meta.conflicts {
+                let other = canonical_mod_id(other);
+                if present_ids.contains(&other) {
+                    issues.push(mk_issue(
+                        IssueSeverity::Warn,
+                        meta.id.clone(),
+                        format!("{} conflicts with `{other}` ({range})", meta.id),
+                        None,
+                        Some(meta.file.clone()),
+                        "local",
+                        None,
+                    ));
                 }
             }
         }
-
-        for (other, range) in &meta.conflicts {
-            let other = other.to_ascii_lowercase();
-            if present_ids.contains(&other) {
-                issues.push(ReqIssue {
-                    severity: IssueSeverity::Warn,
-                    mod_id: meta.id.clone(),
-                    message: format!("{} conflicts with `{other}` ({range})", meta.id),
-                    missing_mod_id: None,
-                    source_file: Some(meta.file.clone()),
-                });
-            }
-        }
     }
+
+    if deep_scan {
+        // Modrinth dependency SoT is network-backed and intentionally kept out
+        // of the synchronous launch gate.
+        merge_modrinth_sot(
+            &mods_dir,
+            &metas,
+            &present_ids,
+            &inst.game_version,
+            inst.loader.as_str(),
+            &mut issues,
+        );
+    }
+
+    dedupe_issues(&mut issues);
 
     Ok(ReqScanResult {
         issues,
         mod_count: metas.iter().filter(|m| !m.file.contains("!/")).count(),
         scanned_at: Utc::now().to_rfc3339(),
+        local_scan,
+        deep_scan,
+        duration_ms: started.elapsed().as_millis() as u64,
     })
+}
+
+fn canonical_mod_id(id: &str) -> String {
+    let normalized = id.trim().to_ascii_lowercase().replace('_', "-");
+    match normalized.as_str() {
+        // Cloth Config has used both ids across loaders/releases.
+        "cloth-config2" => "cloth-config".into(),
+        "fabricloader" => "fabric-loader".into(),
+        "quilt-loader" | "quiltloader" => "quilt-loader".into(),
+        "quilted-fabric-api" => "quilted-fabric-api".into(),
+        _ => normalized,
+    }
+}
+
+fn meta_provides_id(meta: &ModMeta, dep: &str) -> bool {
+    canonical_mod_id(&meta.id) == dep
+        || meta
+            .provides
+            .iter()
+            .any(|provided| canonical_mod_id(provided) == dep)
+}
+
+fn dedupe_issues(issues: &mut Vec<ReqIssue>) {
+    let mut seen = HashSet::new();
+    issues.retain(|issue| {
+        let key = (
+            issue.severity.clone() as u8,
+            canonical_mod_id(&issue.mod_id),
+            issue
+                .missing_mod_id
+                .as_deref()
+                .map(canonical_mod_id)
+                .unwrap_or_default(),
+            issue.source.clone().unwrap_or_default(),
+        );
+        seen.insert(key)
+    });
+}
+
+fn range_looks_exotic(range: &str) -> bool {
+    let t = range.trim();
+    if t.is_empty() || t == "*" {
+        return false;
+    }
+    // Maven intervals and simple predicates are fine; everything else is exotic.
+    if t.starts_with('[') || t.starts_with('(') {
+        return false;
+    }
+    if t.starts_with(">=")
+        || t.starts_with("<=")
+        || t.starts_with('>')
+        || t.starts_with('<')
+        || t.starts_with('=')
+        || t.starts_with('~')
+        || t.starts_with('^')
+    {
+        return false;
+    }
+    if t.contains("||") || t.contains(' ') {
+        return false;
+    }
+    // Bare version string is OK; otherwise treat as exotic/unparseable.
+    t.chars().any(|c| !(c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '+'))
+}
+
+/// Cross-check installed jars against Modrinth version dependencies.
+fn merge_modrinth_sot(
+    mods_dir: &Path,
+    metas: &[ModMeta],
+    present_ids: &HashSet<String>,
+    game_version: &str,
+    loader: &str,
+    issues: &mut Vec<ReqIssue>,
+) {
+    use rayon::prelude::*;
+
+    let _ = (game_version, loader);
+    let mut known_modrinth_projects: HashSet<String> = HashSet::new();
+
+    // Pass 1: hash every root jar, then use Modrinth's batch endpoint. The old
+    // 40-jar cap made large instances incorrectly report later jars as absent.
+    let roots: Vec<_> = metas
+        .iter()
+        .filter(|m| !m.file.contains("!/"))
+        .collect();
+    let hashed_roots: Vec<_> = roots
+        .par_iter()
+        .filter_map(|meta| {
+            let path = mods_dir.join(&meta.file);
+            let hash = file_sha1_hex(&path).ok()?;
+            Some((meta.id.clone(), meta.file.clone(), hash))
+        })
+        .collect();
+    let mut versions_by_hash = HashMap::new();
+    let hashes: Vec<String> = hashed_roots
+        .iter()
+        .map(|(_, _, hash)| hash.clone())
+        .collect();
+    for chunk in hashes.chunks(100) {
+        if let Ok(found) = lookup_versions_by_hashes(chunk) {
+            versions_by_hash.extend(found);
+        }
+    }
+    let versions: Vec<_> = hashed_roots
+        .into_iter()
+        .filter_map(|(mod_id, file, hash)| {
+            versions_by_hash
+                .remove(&hash)
+                .map(|version| (mod_id, file, version))
+        })
+        .collect();
+    for (_, _, version) in &versions {
+        if !version.project_id.is_empty() {
+            known_modrinth_projects.insert(version.project_id.clone());
+        }
+    }
+
+    // A manually installed or CurseForge jar may not resolve by Modrinth hash.
+    // Map dependency project ids to their public slugs so local metadata can
+    // still prove that the dependency is installed.
+    let mut dependency_projects: Vec<String> = versions
+        .iter()
+        .flat_map(|(_, _, version)| {
+            version
+                .dependencies
+                .iter()
+                .filter_map(|dep| dep.project_id.clone())
+        })
+        .filter(|id| !id.is_empty() && !known_modrinth_projects.contains(id))
+        .collect();
+    dependency_projects.sort();
+    dependency_projects.dedup();
+    let mut project_slugs = HashMap::new();
+    for chunk in dependency_projects.chunks(100) {
+        if let Ok(found) = fetch_project_slugs(chunk) {
+            project_slugs.extend(found);
+        }
+    }
+
+    // Pass 2: emit missing required deps / incompatibles.
+    let mut seen_required: HashSet<String> = HashSet::new();
+    for (mod_id, file, version) in &versions {
+        for dep in &version.dependencies {
+            let dep_type = dep.dependency_type.to_ascii_lowercase();
+            let Some(project_id) = dep.project_id.clone().filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            // Broken or redundant upstream metadata must never make a project
+            // report itself as missing.
+            if project_id == version.project_id {
+                continue;
+            }
+            let dependency_present = modrinth_project_is_present(
+                &project_id,
+                &known_modrinth_projects,
+                &project_slugs,
+                present_ids,
+            );
+            if dep_type == "incompatible" && dependency_present {
+                issues.push(mk_issue(
+                    IssueSeverity::Error,
+                    mod_id.clone(),
+                    format!("{mod_id} is incompatible with Modrinth project `{project_id}` (SoT)"),
+                    None,
+                    Some(file.clone()),
+                    "modrinth",
+                    Some(project_id),
+                ));
+                continue;
+            }
+            if dep_type != "required" {
+                continue;
+            }
+            if dependency_present {
+                continue;
+            }
+            if !seen_required.insert(project_id.clone()) {
+                continue;
+            }
+            issues.push(mk_issue(
+                IssueSeverity::Error,
+                mod_id.clone(),
+                format!("{mod_id} requires Modrinth dependency `{project_id}` (not installed)"),
+                Some(project_id.clone()),
+                Some(file.clone()),
+                "modrinth",
+                Some(project_id),
+            ));
+        }
+    }
+
+    for issue in issues.iter_mut() {
+        if issue.source.as_deref() != Some("local") {
+            continue;
+        }
+        if !matches!(issue.severity, IssueSeverity::Error) {
+            continue;
+        }
+        let Some(missing) = issue.missing_mod_id.as_deref() else {
+            continue;
+        };
+        if present_ids.contains(missing) {
+            issue.severity = IssueSeverity::Warn;
+            issue.message = format!("{} (present via provides/umbrella — demoted)", issue.message);
+        }
+    }
+}
+
+fn modrinth_project_is_present(
+    project_id: &str,
+    known_projects: &HashSet<String>,
+    project_slugs: &HashMap<String, String>,
+    present_ids: &HashSet<String>,
+) -> bool {
+    if known_projects.contains(project_id) {
+        return true;
+    }
+    let local_id = project_slugs
+        .get(project_id)
+        .map(|slug| canonical_mod_id(slug))
+        .or_else(|| known_mod_id_for_project(project_id).map(str::to_string));
+    local_id
+        .as_deref()
+        .map(|id| present_ids.contains(id))
+        .unwrap_or(false)
+}
+
+fn known_mod_id_for_project(project_id: &str) -> Option<&'static str> {
+    match project_id {
+        // Fabric API. This fallback also works if project metadata lookup is
+        // temporarily unavailable.
+        "P7dR8mSH" => Some("fabric-api"),
+        _ => None,
+    }
 }
 
 fn jar_stem_id(file_name: &str) -> String {
@@ -301,7 +630,23 @@ fn filename_fallback_meta(file_name: &str) -> Option<ModMeta> {
 }
 
 fn is_fabric_api_module(dep: &str) -> bool {
-    dep.starts_with("fabric-") && dep != "fabric-api" && dep != "fabric-loader" && dep != "fabric"
+    // Only treat known Fabric API module patterns as covered by the fabric-api umbrella.
+    // Do NOT treat arbitrary fabric-* mods (e.g. fabric-language-kotlin) as FAPI modules.
+    if matches!(
+        dep,
+        "fabric-api" | "fabric-loader" | "fabric" | "fabric-language-kotlin"
+    ) {
+        return false;
+    }
+    if dep == "fabric-api-base" || dep.starts_with("fabric-api-") {
+        return true;
+    }
+    dep.starts_with("fabric-")
+        && (dep.contains("-v1")
+            || dep.contains("-v2")
+            || dep.contains("-v3")
+            || dep.contains("-v4")
+            || dep.contains("-v5"))
 }
 
 fn is_quilted_api_module(dep: &str) -> bool {
@@ -568,7 +913,11 @@ fn parse_mods_toml(raw: &str, file_name: &str) -> Result<ModMeta, String> {
     }
 
     if let Some(deps_table) = value.get("dependencies").and_then(|d| d.as_table()) {
-        for (_mod, entries) in deps_table {
+        for (_owner_mod, entries) in deps_table {
+            // Keep external requirements declared by every provided mod, but
+            // dependencies satisfied by this same physical jar are filtered
+            // below. That prevents Cloth Config -> Cloth Config without hiding
+            // a real dependency of another mod bundled in the jar.
             let list = match entries {
                 toml::Value::Array(a) => a.clone(),
                 other => vec![other.clone()],
@@ -580,6 +929,13 @@ fn parse_mods_toml(raw: &str, file_name: &str) -> Result<ModMeta, String> {
                     .unwrap_or("")
                     .to_ascii_lowercase();
                 if dep_id.is_empty() {
+                    continue;
+                }
+                if canonical_mod_id(&dep_id) == canonical_mod_id(&id)
+                    || provides
+                        .iter()
+                        .any(|provided| canonical_mod_id(provided) == canonical_mod_id(&dep_id))
+                {
                     continue;
                 }
                 let range = entry
@@ -836,12 +1192,54 @@ fn normalize_semver(v: &str) -> String {
     }
 }
 
-pub fn resolve_missing(instance_id: String, missing_mod_id: String) -> Result<ReqScanResult, String> {
+/// Modrinth project ids are 8-char base62; the API also accepts slugs.
+fn looks_like_modrinth_project_id(id: &str) -> bool {
+    let t = id.trim();
+    t.len() == 8 && t.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+fn looks_like_modrinth_slug(id: &str) -> bool {
+    let t = id.trim();
+    t.len() >= 2
+        && t.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+pub fn resolve_missing(
+    instance_id: String,
+    missing_mod_id: String,
+    project_id: Option<String>,
+) -> Result<ReqScanResult, String> {
     let inst = get_instance(&instance_id)?;
+    let loader = inst.loader.as_str();
+    let target = project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(missing_mod_id.trim())
+        .to_string();
+    if target.is_empty() {
+        return Err("No Modrinth project or mod id to install".into());
+    }
+
+    // Prefer direct Modrinth project id / slug install over fuzzy title search.
+    if looks_like_modrinth_project_id(&target) || looks_like_modrinth_slug(&target) {
+        match install_project_with_deps(&instance_id, &target, &inst.game_version, loader, 0) {
+            Ok(_) => return scan_configured(&instance_id),
+            Err(e) => {
+                // Hard-fail for real project ids so the UI can show the error.
+                // Slug/mod-id refs may still resolve via search below.
+                if looks_like_modrinth_project_id(&target) || project_id.is_some() {
+                    return Err(e);
+                }
+            }
+        }
+    }
+
     let hits = search_mods(
         missing_mod_id.clone(),
         inst.game_version.clone(),
-        inst.loader.as_str().to_string(),
+        loader.to_string(),
         None,
     )?;
     let hit = hits
@@ -855,7 +1253,7 @@ pub fn resolve_missing(instance_id: String, missing_mod_id: String) -> Result<Re
             search_mods(
                 missing_mod_id.clone(),
                 inst.game_version.clone(),
-                inst.loader.as_str().to_string(),
+                loader.to_string(),
                 None,
             )
             .ok()
@@ -863,17 +1261,87 @@ pub fn resolve_missing(instance_id: String, missing_mod_id: String) -> Result<Re
         })
         .ok_or_else(|| format!("Could not find `{missing_mod_id}` on Modrinth for this instance"))?;
 
-    let version = hit
-        .versions
-        .first()
-        .ok_or("No compatible version on Modrinth")?;
-    install_mod(instance_id.clone(), hit.project_id, version.id.clone())?;
-    scan_instance(&instance_id)
+    install_project_with_deps(
+        &instance_id,
+        &hit.project_id,
+        &inst.game_version,
+        loader,
+        0,
+    )?;
+    scan_configured(&instance_id)
+}
+
+/// Install all missing required deps reported by the configured scan.
+pub fn resolve_all_missing(instance_id: String) -> Result<ReqScanResult, String> {
+    let scan = scan_configured(&instance_id)?;
+    let mut targets: Vec<(Option<String>, String)> = scan
+        .issues
+        .iter()
+        .filter(|i| matches!(i.severity, IssueSeverity::Error))
+        .filter_map(|i| {
+            let missing = i
+                .missing_mod_id
+                .clone()
+                .or_else(|| i.project_id.clone())?;
+            Some((i.project_id.clone(), missing))
+        })
+        .collect();
+    targets.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+    });
+    targets.dedup();
+    if targets.is_empty() {
+        return Ok(scan);
+    }
+
+    let mut errors = Vec::new();
+    let mut ok = 0usize;
+    for (project_id, missing) in targets {
+        match resolve_missing(instance_id.clone(), missing.clone(), project_id) {
+            Ok(_) => ok += 1,
+            Err(e) => errors.push(format!("{missing}: {e}")),
+        }
+    }
+    if ok == 0 {
+        return Err(format!(
+            "Could not install missing dependencies:\n{}",
+            errors.join("\n")
+        ));
+    }
+    let result = scan_configured(&instance_id)?;
+    if !errors.is_empty() {
+        // Partial success — return the rescan so the UI can refresh, but keep
+        // a warning issue so the failure is visible.
+        let mut result = result;
+        result.issues.insert(
+            0,
+            mk_issue(
+                IssueSeverity::Warn,
+                "reqguard",
+                format!(
+                    "Installed {ok} dependencies; {} failed:\n{}",
+                    errors.len(),
+                    errors.join("\n")
+                ),
+                None,
+                None,
+                "resolve",
+                None,
+            ),
+        );
+        return Ok(result);
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
 mod version_tests {
-    use super::version_satisfies;
+    use super::{
+        canonical_mod_id, is_fabric_api_module, modrinth_project_is_present, parse_mods_toml,
+        version_satisfies,
+    };
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn le_includes_equality() {
@@ -894,5 +1362,72 @@ mod version_tests {
         assert!(version_satisfies("1.21.11", "[1.21,1.21.11]"));
         assert!(!version_satisfies("1.21.11", "[1.21,1.21.11)"));
         assert!(version_satisfies("1.21.1", "[1.21,1.21.11]"));
+    }
+
+    #[test]
+    fn fabric_api_umbrella_modules() {
+        assert!(is_fabric_api_module("fabric-rendering-v1"));
+        assert!(is_fabric_api_module("fabric-api-base"));
+        assert!(!is_fabric_api_module("fabric-language-kotlin"));
+        assert!(!is_fabric_api_module("fabric-api"));
+    }
+
+    #[test]
+    fn known_dependency_aliases_are_canonical() {
+        assert_eq!(canonical_mod_id("cloth_config2"), "cloth-config");
+        assert_eq!(canonical_mod_id("cloth-config"), "cloth-config");
+        assert_eq!(canonical_mod_id("fabricloader"), "fabric-loader");
+    }
+
+    #[test]
+    fn modrinth_project_slug_matches_manual_local_install() {
+        let known = HashSet::new();
+        let present = HashSet::from(["fabric-api".to_string()]);
+        let slugs = HashMap::from([("P7dR8mSH".to_string(), "fabric-api".to_string())]);
+        assert!(modrinth_project_is_present(
+            "P7dR8mSH",
+            &known,
+            &slugs,
+            &present
+        ));
+        // Built-in fallback protects this high-frequency dependency when the
+        // project metadata request itself is unavailable.
+        assert!(modrinth_project_is_present(
+            "P7dR8mSH",
+            &known,
+            &HashMap::new(),
+            &present
+        ));
+    }
+
+    #[test]
+    fn forge_multimod_metadata_does_not_create_self_dependency() {
+        let raw = r#"
+            [[mods]]
+            modId = "cloth_config"
+            version = "1.0"
+
+            [[mods]]
+            modId = "cloth_config_api"
+            version = "1.0"
+
+            [[dependencies.cloth_config]]
+            modId = "cloth_config"
+            mandatory = true
+            versionRange = "*"
+
+            [[dependencies.cloth_config_api]]
+            modId = "cloth_config"
+            mandatory = true
+            versionRange = "*"
+
+            [[dependencies.cloth_config_api]]
+            modId = "fabric_api"
+            mandatory = true
+            versionRange = "*"
+        "#;
+        let meta = parse_mods_toml(raw, "cloth-config.jar").expect("valid Forge metadata");
+        assert!(!meta.depends.contains_key("cloth_config"));
+        assert_eq!(meta.depends.get("fabric_api"), Some(&"*".to_string()));
     }
 }

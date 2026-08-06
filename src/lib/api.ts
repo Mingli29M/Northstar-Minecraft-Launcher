@@ -4,8 +4,10 @@ import type {
   Account,
   ContentItem,
   CrashHint,
+  GameExitAnalysis,
   Instance,
   InstanceFolder,
+  JavaStatus,
   LauncherSettings,
   LogLine,
   ModEntry,
@@ -21,12 +23,18 @@ import type {
   FavoriteEntry,
   VersionInfo,
   WorldSettings,
+  WorldBackup,
+  WorldInfo,
+  LitematicaInfo,
   DedicatedServer,
   DedicatedStatus,
   DedicatedProperties,
   DedicatedPlayerLists,
   DedicatedNetworkInfo,
   HostLiveStats,
+  HangarProject,
+  HangarVersion,
+  HostPluginEntry,
 } from "./types";
 
 const INSTANCES = "instances";
@@ -223,8 +231,14 @@ export const api = {
     invoke<string>("export_mrpack", { instanceId, destPath }),
 
   reqguardScan: (instanceId: string) => invoke<ReqScanResult>("reqguard_scan", { instanceId }),
-  reqguardResolve: (instanceId: string, missingModId: string) =>
-    invoke<ReqScanResult>("reqguard_resolve", { instanceId, missingModId }),
+  reqguardResolve: (instanceId: string, missingModId: string, projectId?: string | null) =>
+    invoke<ReqScanResult>("reqguard_resolve", {
+      instanceId,
+      missingModId,
+      projectId: projectId ?? null,
+    }),
+  reqguardResolveAll: (instanceId: string) =>
+    invoke<ReqScanResult>("reqguard_resolve_all", { instanceId }),
 
   listContent: (instanceId: string, kind: string) =>
     invoke<ContentItem[]>("list_content", { instanceId, kind }),
@@ -236,6 +250,16 @@ export const api = {
   importSave: (instanceId: string, srcPath: string) =>
     invoke<ContentItem[]>("import_save", { instanceId, srcPath }),
   listWorlds: (instanceId: string) => invoke<ContentItem[]>("list_worlds", { instanceId }),
+  listWorldsDetailed: (instanceId: string) => invoke<WorldInfo[]>("list_worlds_detailed", { instanceId }),
+  listWorldBackups: (instanceId: string, worldName: string) =>
+    invoke<WorldBackup[]>("list_world_backups", { instanceId, worldName }),
+  createWorldBackup: (instanceId: string, worldName: string) =>
+    invoke<WorldBackup>("create_world_backup", { instanceId, worldName }),
+  restoreWorldBackup: (instanceId: string, worldName: string, backupName: string) =>
+    invoke<void>("restore_world_backup", { instanceId, worldName, backupName }),
+  deleteWorldBackup: (instanceId: string, worldName: string, backupName: string) =>
+    invoke<void>("delete_world_backup", { instanceId, worldName, backupName }),
+  detectLitematica: (instanceId: string) => invoke<LitematicaInfo>("detect_litematica", { instanceId }),
   listScreenshots: (instanceId: string) => invoke<ContentItem[]>("list_screenshots", { instanceId }),
   listDatapacks: (instanceId: string, worldName: string) =>
     invoke<ContentItem[]>("list_datapacks", { instanceId, worldName }),
@@ -245,6 +269,8 @@ export const api = {
     invoke<ContentItem[]>("delete_datapack", { instanceId, worldName, name }),
   readLogs: (instanceId: string) => invoke<LogLine[]>("read_logs", { instanceId }),
   analyzeCrash: (instanceId: string) => invoke<CrashHint[]>("analyze_crash", { instanceId }),
+  lastGameExitAnalysis: (instanceId: string) =>
+    invoke<GameExitAnalysis | null>("last_game_exit_analysis", { instanceId }),
 
   listServers: (instanceId: string) => invoke<ServerEntry[]>("list_servers", { instanceId }),
   addServer: (instanceId: string, name: string, ip: string) =>
@@ -276,6 +302,14 @@ export const api = {
       return list;
     }),
   detectJavaInstalls: () => cached(JAVA, 60_000, () => invoke<string[]>("detect_java_installs")),
+  requiredJavaForGame: (gameVersion: string) =>
+    invoke<number>("required_java_for_game", { gameVersion }),
+  javaStatus: (gameVersion: string) => invoke<JavaStatus>("java_status", { gameVersion }),
+  downloadTemurin: (major: number) =>
+    invoke<string>("download_temurin", { major }).then((path) => {
+      cacheInvalidate(JAVA);
+      return path;
+    }),
 
   listFavorites: () => invoke<FavoriteEntry[]>("list_favorites"),
   toggleFavorite: (payload: {
@@ -345,6 +379,38 @@ export const api = {
     invoke<string>("dedicated_download_world", { id, destPath }),
   dedicatedDownloadMods: (id: string, destPath: string) =>
     invoke<string>("dedicated_download_mods", { id, destPath }),
+
+  hangarSearchPlugins: (query: string, platform?: string, limit?: number) =>
+    invoke<HangarProject[]>("hangar_search_plugins", {
+      query,
+      platform: platform ?? null,
+      limit: limit ?? null,
+    }),
+  hangarListPluginVersions: (author: string, slug: string, platform?: string) =>
+    invoke<HangarVersion[]>("hangar_list_plugin_versions", {
+      author,
+      slug,
+      platform: platform ?? null,
+    }),
+  hangarInstallPlugin: (
+    dedicatedId: string,
+    author: string,
+    slug: string,
+    versionOrLatest?: string,
+    platform?: string,
+  ) =>
+    invoke<HostPluginEntry>("hangar_install_plugin", {
+      dedicatedId,
+      author,
+      slug,
+      versionOrLatest: versionOrLatest ?? "latest",
+      platform: platform ?? null,
+    }),
+  dedicatedListPlugins: (id: string) => invoke<HostPluginEntry[]>("dedicated_list_plugins", { id }),
+  dedicatedSetPluginEnabled: (id: string, name: string, enabled: boolean) =>
+    invoke<HostPluginEntry[]>("dedicated_set_plugin_enabled", { id, name, enabled }),
+  dedicatedDeletePlugin: (id: string, name: string) =>
+    invoke<HostPluginEntry[]>("dedicated_delete_plugin", { id, name }),
 };
 
 export type { ModrinthHit };

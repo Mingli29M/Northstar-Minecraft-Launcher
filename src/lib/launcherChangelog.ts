@@ -34,6 +34,81 @@ export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
+    version: "1.2.2",
+    date: "2026-08-05",
+    summary: "ReqGuard install-button fixes and experimental local metadata scan toggle.",
+    sections: [
+      {
+        title: "ReqGuard",
+        items: [
+          "Install / Install-all buttons report errors and re-scan with the active Settings modes",
+          "Install-all uses deep Modrinth SoT issues instead of a local-only pass",
+          "Local metadata scan is Experimental and off by default; Play is gated only when it is enabled",
+        ],
+      },
+    ],
+  },
+  {
+    version: "1.2.1",
+    date: "2026-08-05",
+    summary: "Hangar plugin installs for Paper/Purpur Host servers and ReqGuard polish.",
+    sections: [
+      {
+        title: "Host plugins",
+        items: [
+          "Paper/Purpur dedicated servers get a Plugins tab with Hangar search and install",
+          "Enable, disable, or delete installed plugin jars under runtime/plugins/",
+        ],
+      },
+      {
+        title: "ReqGuard",
+        items: [
+          "Install-all missing dependencies remains available on Launch and Versions",
+          "Modrinth API User-Agent updated to Northstar/1.2.1",
+        ],
+      },
+    ],
+  },
+  {
+    version: "1.2.0",
+    date: "2026-08-05",
+    summary:
+      "ReqGuard Modrinth SoT, upgraded crash analysis, Temurin Java download, world backups, and Litematica notice.",
+    sections: [
+      {
+        title: "ReqGuard",
+        items: [
+          "Background scans with an optional deep check of the real instance jars",
+          "Canonical aliases and self-dependency filtering fix false Fabric API and mod-requires-itself reports",
+          "Batched Modrinth hash lookup plus project-slug mapping recognizes manual and CurseForge installs",
+          "Install missing by project id with required dependency chain; install-all action",
+        ],
+      },
+      {
+        title: "Crash analysis",
+        items: [
+          "Newest crash-report + latest.log with exception/frame extraction and stable hint codes",
+          "Automatic full-lifetime process monitoring with persisted in-app analysis after abnormal exits",
+        ],
+      },
+      {
+        title: "Prerequisites",
+        items: [
+          "Java status + Adoptium Temurin download on Download → Game",
+          "Modrinth installs pull required dependencies automatically",
+        ],
+      },
+      {
+        title: "Worlds",
+        items: [
+          "World backup fold-down with create/restore/delete",
+          "Auto-backup on launch with keep-last-N pruning",
+          "Litematica detection notice with schematics path",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.1.2",
     date: "2026-08-05",
     summary:

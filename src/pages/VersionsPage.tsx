@@ -10,6 +10,7 @@ import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { VStack } from "@astryxdesign/core/VStack";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Selector } from "@astryxdesign/core/Selector";
+import { Spinner } from "@astryxdesign/core/Spinner";
 import { api } from "../lib/api";
 import { loaderIconSrc } from "../lib/avatars";
 import { useI18n } from "../i18n";
@@ -18,9 +19,12 @@ import type {
   Instance,
   InstanceFolder,
   LogLine,
+  LitematicaInfo,
   ModEntry,
   ParsedConfig,
   ReqScanResult,
+  WorldBackup,
+  WorldInfo,
   WorldSettings,
 } from "../lib/types";
 import { normalizeMcVersion } from "../lib/mcVersion";
@@ -52,9 +56,16 @@ export function VersionsPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [mods, setMods] = useState<ModEntry[]>([]);
   const [content, setContent] = useState<ContentItem[]>([]);
+  const [worldsDetailed, setWorldsDetailed] = useState<WorldInfo[]>([]);
+  const [expandedWorld, setExpandedWorld] = useState<string | null>(null);
+  const [worldBackups, setWorldBackups] = useState<WorldBackup[]>([]);
+  const [litematicaInfo, setLitematicaInfo] = useState<LitematicaInfo | null>(null);
   const [datapacks, setDatapacks] = useState<ContentItem[]>([]);
   const [worldForDp, setWorldForDp] = useState("");
   const [scan, setScan] = useState<ReqScanResult | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [fixBusy, setFixBusy] = useState(false);
+  const [fixError, setFixError] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [creating, setCreating] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -99,8 +110,22 @@ export function VersionsPage() {
           const m = await api.listInstanceMods(selected.id);
           if (!cancelled) setMods(m);
         } else if (tab === "worlds") {
-          const c = await api.listWorlds(selected.id);
-          if (!cancelled) setContent(c);
+          const [worlds, litematica] = await Promise.all([
+            api.listWorldsDetailed(selected.id),
+            api.detectLitematica(selected.id),
+          ]);
+          if (!cancelled) {
+            setWorldsDetailed(worlds);
+            setLitematicaInfo(litematica);
+            setContent(
+              worlds.map((w) => ({
+                name: w.name,
+                path: w.path,
+                kind: "saves",
+                icon_path: w.icon_path,
+              })),
+            );
+          }
         } else if (tab === "resourcepacks") {
           const c = await api.listContent(selected.id, "resourcepacks");
           if (!cancelled) setContent(c);
@@ -128,8 +153,13 @@ export function VersionsPage() {
             }
           }
         } else if (tab === "reqguard") {
-          const s = await api.reqguardScan(selected.id);
-          if (!cancelled) setScan(s);
+          if (!cancelled) setScanBusy(true);
+          try {
+            const s = await api.reqguardScan(selected.id);
+            if (!cancelled) setScan(s);
+          } finally {
+            if (!cancelled) setScanBusy(false);
+          }
         } else if (tab === "logs") {
           const l = await api.readLogs(selected.id);
           if (!cancelled) setLogs(l);
@@ -144,6 +174,62 @@ export function VersionsPage() {
       clearTimeout(timer);
     };
   }, [selected, tab, worldForDp]);
+
+  async function rerunReqguard() {
+    if (!selected || scanBusy || fixBusy) return;
+    setScanBusy(true);
+    setFixError(null);
+    try {
+      setScan(await api.reqguardScan(selected.id));
+    } finally {
+      setScanBusy(false);
+    }
+  }
+
+  async function fixMissing(missingModId: string, projectId?: string | null) {
+    if (!selected || fixBusy) return;
+    setFixBusy(true);
+    setFixError(null);
+    try {
+      setScan(await api.reqguardResolve(selected.id, missingModId, projectId));
+    } catch (e) {
+      setFixError(String(e));
+    } finally {
+      setFixBusy(false);
+    }
+  }
+
+  async function fixAllMissing() {
+    if (!selected || fixBusy) return;
+    setFixBusy(true);
+    setFixError(null);
+    try {
+      setScan(await api.reqguardResolveAll(selected.id));
+    } catch (e) {
+      setFixError(String(e));
+    } finally {
+      setFixBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!selected || !expandedWorld) {
+      setWorldBackups([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .listWorldBackups(selected.id, expandedWorld)
+      .then((backups) => {
+        if (!cancelled) setWorldBackups(backups);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, expandedWorld, worldsDetailed]);
 
   useEffect(() => {
     if (!selected || tab !== "configs" || !configPath) return;
@@ -201,6 +287,10 @@ export function VersionsPage() {
   const filteredContent = useMemo(
     () => (q ? content.filter((c) => c.name.toLowerCase().includes(q)) : content),
     [content, q],
+  );
+  const filteredWorldsDetailed = useMemo(
+    () => (q ? worldsDetailed.filter((w) => w.name.toLowerCase().includes(q)) : worldsDetailed),
+    [worldsDetailed, q],
   );
   const filteredDatapacks = useMemo(
     () => (q ? datapacks.filter((d) => d.name.toLowerCase().includes(q)) : datapacks),
@@ -779,7 +869,148 @@ export function VersionsPage() {
 
             {tab === "worlds" && (
               <VStack gap={3}>
-                {contentList("saves")}
+                {litematicaInfo?.present && (
+                  <DismissibleBanner
+                    status="info"
+                    title={`${t("litematicaDetected")} — ${t("litematicaSchematicsPath", { path: litematicaInfo.schematics_path })}`}
+                    onDismiss={() => setLitematicaInfo({ ...litematicaInfo, present: false })}
+                  />
+                )}
+                <Card padding={0} className="euml-fade-in">
+                  <HStack gap={2} style={{ padding: 12, borderBottom: "1px solid var(--color-border)" }} align="end">
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <TextInput label={t("searchInstalled")} value={contentQuery} onChange={setContentQuery} />
+                    </div>
+                    <Button
+                      size="sm"
+                      label={t("importSave")}
+                      onClick={async () => {
+                        if (!selected) return;
+                        const path = await open({ directory: true });
+                        if (!path || Array.isArray(path)) return;
+                        const imported = await api.importSave(selected.id, path);
+                        setContent(imported);
+                        setWorldsDetailed(await api.listWorldsDetailed(selected.id));
+                      }}
+                    />
+                  </HStack>
+                  {filteredWorldsDetailed.map((world) => (
+                    <div key={world.path}>
+                      <HStack justify="between" align="center" className="euml-list-row" gap={3}>
+                        {world.icon_path ? (
+                          <img src={world.icon_path} alt="" className="euml-avatar" />
+                        ) : (
+                          <div className="euml-avatar" style={{ display: "grid", placeItems: "center", fontSize: 11 }}>
+                            {world.name.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                        <VStack gap={0} style={{ flex: 1, minWidth: 0 }}>
+                          <Text>{world.name}</Text>
+                          <Text color="secondary" type="supporting">
+                            {world.has_backups
+                              ? t("backupCount", { count: world.backup_count })
+                              : t("noBackups")}
+                          </Text>
+                        </VStack>
+                        <HStack gap={2}>
+                          <Button
+                            size="sm"
+                            label={expandedWorld === world.name ? t("cancel") : t("worldBackups")}
+                            onClick={() =>
+                              setExpandedWorld(expandedWorld === world.name ? null : world.name)
+                            }
+                          />
+                          <Button
+                            size="sm"
+                            label={t("worldSettings")}
+                            onClick={() => setEditingWorld(world.name)}
+                          />
+                          <Button
+                            size="sm"
+                            label={t("openItem")}
+                            variant="secondary"
+                            onClick={() => api.openContentItem(world.path)}
+                          />
+                          <Button
+                            size="sm"
+                            label={t("delete")}
+                            variant="destructive"
+                            onClick={async () => {
+                              if (!selected) return;
+                              setContent(await api.deleteContent(selected.id, "saves", world.name));
+                              setWorldsDetailed(await api.listWorldsDetailed(selected.id));
+                              if (expandedWorld === world.name) setExpandedWorld(null);
+                            }}
+                          />
+                        </HStack>
+                      </HStack>
+                      {expandedWorld === world.name && (
+                        <VStack gap={2} style={{ padding: "8px 16px 16px", background: "var(--color-surface-secondary, rgba(0,0,0,0.03))" }}>
+                          <HStack justify="between" align="center">
+                            <Text weight="semibold">{t("worldBackups")}</Text>
+                            <Button
+                              size="sm"
+                              label={t("createBackup")}
+                              onClick={async () => {
+                                if (!selected) return;
+                                await api.createWorldBackup(selected.id, world.name);
+                                setWorldsDetailed(await api.listWorldsDetailed(selected.id));
+                                setWorldBackups(await api.listWorldBackups(selected.id, world.name));
+                                setStatus(t("backupCreated"));
+                              }}
+                            />
+                          </HStack>
+                          {worldBackups.map((backup) => (
+                            <HStack key={backup.path} justify="between" align="center" gap={2}>
+                              <VStack gap={0} style={{ flex: 1, minWidth: 0 }}>
+                                <Text type="supporting">{backup.name}</Text>
+                                <Text color="secondary" type="supporting" style={{ fontSize: 11 }}>
+                                  {backup.created_at}
+                                </Text>
+                              </VStack>
+                              <HStack gap={2}>
+                                <Button
+                                  size="sm"
+                                  label={t("restoreBackup")}
+                                  onClick={async () => {
+                                    if (!selected) return;
+                                    if (!window.confirm(t("restoreBackupConfirm"))) return;
+                                    await api.restoreWorldBackup(selected.id, world.name, backup.name);
+                                    setWorldsDetailed(await api.listWorldsDetailed(selected.id));
+                                    setWorldBackups(await api.listWorldBackups(selected.id, world.name));
+                                    setStatus(t("backupRestored"));
+                                  }}
+                                />
+                                <Button
+                                  size="sm"
+                                  label={t("deleteBackup")}
+                                  variant="destructive"
+                                  onClick={async () => {
+                                    if (!selected) return;
+                                    await api.deleteWorldBackup(selected.id, world.name, backup.name);
+                                    setWorldsDetailed(await api.listWorldsDetailed(selected.id));
+                                    setWorldBackups(await api.listWorldBackups(selected.id, world.name));
+                                    setStatus(t("backupDeleted"));
+                                  }}
+                                />
+                              </HStack>
+                            </HStack>
+                          ))}
+                          {worldBackups.length === 0 && (
+                            <Text color="secondary" type="supporting">
+                              {t("noBackups")}
+                            </Text>
+                          )}
+                        </VStack>
+                      )}
+                    </div>
+                  ))}
+                  {filteredWorldsDetailed.length === 0 && (
+                    <div style={{ padding: 16 }}>
+                      <Text color="secondary">{t("none")}</Text>
+                    </div>
+                  )}
+                </Card>
                 {editingWorld && worldSettings && (
                   <Card padding={4} className="euml-fade-in">
                     <VStack gap={3}>
@@ -954,14 +1185,74 @@ export function VersionsPage() {
 
             {tab === "reqguard" && (
               <Card padding={4} className="euml-fade-in">
-                <Button label="Re-scan" onClick={async () => setScan(await api.reqguardScan(selected.id))} />
-                <VStack gap={2} style={{ marginTop: 12 }}>
-                  {scan?.issues.map((issue, i) => (
-                    <Text key={i} type="supporting">
-                      {issue.message}
+                <HStack gap={2} style={{ flexWrap: "wrap" }}>
+                  <Button
+                    label={t("rerunReqguard")}
+                    isDisabled={scanBusy || fixBusy}
+                    onClick={() => void rerunReqguard()}
+                  />
+                  {scan && scan.issues.some((i) => i.severity === "error") && (
+                    <Button
+                      label={t("installAllMissing")}
+                      variant="primary"
+                      isDisabled={scanBusy || fixBusy}
+                      onClick={() => void fixAllMissing()}
+                    />
+                  )}
+                </HStack>
+                {(scanBusy || fixBusy) && (
+                  <HStack gap={2} align="center" style={{ marginTop: 12 }}>
+                    <Spinner size="sm" />
+                    <Text color="secondary" type="supporting">
+                      {fixBusy ? t("installingMissing") : t("reqguardScanning")}
                     </Text>
+                  </HStack>
+                )}
+                {fixError && (
+                  <DismissibleBanner
+                    status="error"
+                    title={fixError}
+                    onDismiss={() => setFixError(null)}
+                  />
+                )}
+                <VStack gap={2} style={{ marginTop: 12 }}>
+                  {scan &&
+                    !scanBusy &&
+                    !fixBusy &&
+                    !scan.local_scan &&
+                    !scan.deep_scan &&
+                    scan.issues.length === 0 && (
+                      <Text color="secondary" type="supporting">
+                        {t("reqguardModesIdle")}
+                      </Text>
+                    )}
+                  {scan?.issues.map((issue, i) => (
+                    <VStack key={i} gap={1}>
+                      <Text type="supporting">
+                        {issue.source ? `[${issue.source}] ` : ""}
+                        {issue.message}
+                      </Text>
+                      {(issue.project_id || issue.missing_mod_id) && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={scanBusy || fixBusy}
+                          label={`${t("installMissing")}: ${issue.missing_mod_id || issue.project_id}`}
+                          onClick={() =>
+                            void fixMissing(
+                              issue.missing_mod_id || issue.project_id!,
+                              issue.project_id,
+                            )
+                          }
+                        />
+                      )}
+                    </VStack>
                   ))}
-                  {scan && scan.issues.length === 0 && <Text color="accent">{t("reqguardOk", { count: scan.mod_count })}</Text>}
+                  {scan &&
+                    scan.issues.length === 0 &&
+                    (scan.local_scan || scan.deep_scan) && (
+                      <Text color="accent">{t("reqguardOk", { count: scan.mod_count })}</Text>
+                    )}
                 </VStack>
               </Card>
             )}

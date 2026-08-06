@@ -2,7 +2,7 @@ use crate::auth::active_account;
 use crate::download::{download_file, download_many_progress, emit_progress, DownloadProgress};
 use crate::instances::{get_instance, save_instance};
 use crate::java::resolve_java;
-use crate::models::LoaderKind;
+use crate::models::{GameExitAnalysis, LoaderKind};
 use crate::paths::{meta_dir, minecraft_dir};
 use crate::reqguard;
 use chrono::Utc;
@@ -11,7 +11,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use tauri::AppHandle;
+use std::time::SystemTime;
+use tauri::{AppHandle, Emitter};
 
 pub fn list_game_versions() -> Result<Vec<String>, String> {
     Ok(list_game_versions_detailed()?
@@ -313,27 +314,47 @@ pub fn launch_instance(
     let mut inst = get_instance(&id)?;
 
     if !req_override {
-        let scan = reqguard::scan_instance(&id)?;
-        let hard = scan
-            .issues
-            .iter()
-            .any(|i| matches!(i.severity, crate::models::IssueSeverity::Error));
-        if hard {
-            let count = scan
+        // Launch gate uses the experimental local metadata scan only when enabled.
+        // Deep Modrinth SoT stays in the UI worker and never blocks Play.
+        let local_enabled = crate::paths::load_settings()
+            .map(|s| s.reqguard_local_scan.unwrap_or(false))
+            .unwrap_or(false);
+        if local_enabled {
+            let scan = reqguard::scan_instance(&id)?;
+            let hard = scan
                 .issues
                 .iter()
-                .filter(|i| matches!(i.severity, crate::models::IssueSeverity::Error))
-                .count();
-            for issue in scan.issues.iter().filter(|i| {
-                matches!(i.severity, crate::models::IssueSeverity::Error)
-            }) {
-                crate::console_log::append(Some(&app), issue.message.clone(), "error");
+                .any(|i| matches!(i.severity, crate::models::IssueSeverity::Error));
+            if hard {
+                let count = scan
+                    .issues
+                    .iter()
+                    .filter(|i| matches!(i.severity, crate::models::IssueSeverity::Error))
+                    .count();
+                for issue in scan.issues.iter().filter(|i| {
+                    matches!(i.severity, crate::models::IssueSeverity::Error)
+                }) {
+                    crate::console_log::append(Some(&app), issue.message.clone(), "error");
+                }
+                let msg = format!(
+                    "ReqGuard blocked launch: {count} error(s). Enable “Override ReqGuard” to force start, or fix dependencies."
+                );
+                crate::console_log::append(Some(&app), msg.clone(), "error");
+                return Err(msg);
             }
-            let msg = format!(
-                "ReqGuard blocked launch: {count} error(s). Enable “Override ReqGuard” to force start, or fix dependencies."
-            );
-            crate::console_log::append(Some(&app), msg.clone(), "error");
-            return Err(msg);
+        }
+    }
+
+    if let Ok(settings) = crate::paths::load_settings() {
+        if settings.auto_backup_worlds.unwrap_or(false) {
+            let keep = settings.auto_backup_keep.unwrap_or(5);
+            if let Err(e) = crate::content::auto_backup_all_worlds(&id, keep) {
+                crate::console_log::append(
+                    Some(&app),
+                    format!("Auto-backup warning: {e}"),
+                    "warn",
+                );
+            }
         }
     }
 
@@ -650,6 +671,7 @@ pub fn launch_instance(
         }
     }
 
+    let process_started_at = SystemTime::now();
     let mut child = cmd
         .spawn()
         .map_err(|e| {
@@ -695,6 +717,23 @@ pub fn launch_instance(
                 format!("Minecraft exited immediately ({status}):\n{tail}")
             };
             crate::console_log::append(Some(&app), msg.clone(), "error");
+            let hints = crate::content::analyze_crash_since(
+                id.clone(),
+                Some(process_started_at),
+            )
+            .unwrap_or_default();
+            let analysis = GameExitAnalysis {
+                instance_id: id.clone(),
+                exit_code: status.code(),
+                success: false,
+                summary: msg.clone(),
+                occurred_at: Utc::now().to_rfc3339(),
+                hints,
+            };
+            if let Ok(json) = serde_json::to_vec_pretty(&analysis) {
+                let _ = fs::write(launch_log.join("euml-last-exit-analysis.json"), json);
+            }
+            let _ = app.emit("euml:game-exit-analysis", analysis);
             return Err(msg);
         }
         Ok(None) => {
@@ -713,12 +752,73 @@ pub fn launch_instance(
         }
     }
 
-    // Detach — don't wait on the child for the rest of the session
-    drop(child);
+    // Keep ownership in a background monitor. Dropping Child here made it
+    // impossible to analyze failures that happened after the first 1.8s.
+    let monitor_app = app.clone();
+    let monitor_id = id.clone();
+    let monitor_logs = launch_log.clone();
+    let post_command = inst.post_command.trim().to_string();
+    std::thread::spawn(move || {
+        let waited = child.wait();
+        // Give stdout/stderr tee workers time to flush their final lines.
+        std::thread::sleep(std::time::Duration::from_millis(350));
 
-    if !inst.post_command.trim().is_empty() {
-        let _ = fs::write(mc.join("logs").join("euml-post-pending.txt"), &inst.post_command);
-    }
+        if !post_command.is_empty() {
+            #[cfg(target_os = "windows")]
+            let _ = Command::new("cmd")
+                .args(["/C", &post_command])
+                .current_dir(monitor_logs.parent().unwrap_or(&monitor_logs))
+                .status();
+            #[cfg(not(target_os = "windows"))]
+            let _ = Command::new("sh")
+                .args(["-c", &post_command])
+                .current_dir(monitor_logs.parent().unwrap_or(&monitor_logs))
+                .status();
+        }
+
+        let (success, exit_code) = match waited {
+            Ok(status) => (status.success(), status.code()),
+            Err(_) => (false, None),
+        };
+        if success {
+            let _ = fs::remove_file(monitor_logs.join("euml-last-exit-analysis.json"));
+            crate::console_log::append(
+                Some(&monitor_app),
+                "Minecraft closed normally.",
+                "info",
+            );
+            return;
+        }
+
+        let hints = crate::content::analyze_crash_since(
+            monitor_id.clone(),
+            Some(process_started_at),
+        )
+        .unwrap_or_default();
+        let exit_label = exit_code
+            .map(|code| format!("exit code {code}"))
+            .unwrap_or_else(|| "an unknown exit status".into());
+        let summary = if let Some(hint) = hints.first() {
+            format!("Minecraft stopped with {exit_label}. {}: {}", hint.title, hint.detail)
+        } else {
+            format!(
+                "Minecraft stopped with {exit_label}. No known crash signature matched; check the game console and latest.log."
+            )
+        };
+        let analysis = GameExitAnalysis {
+            instance_id: monitor_id,
+            exit_code,
+            success: false,
+            summary: summary.clone(),
+            occurred_at: Utc::now().to_rfc3339(),
+            hints,
+        };
+        if let Ok(json) = serde_json::to_vec_pretty(&analysis) {
+            let _ = fs::write(monitor_logs.join("euml-last-exit-analysis.json"), json);
+        }
+        crate::console_log::append(Some(&monitor_app), summary, "error");
+        let _ = monitor_app.emit("euml:game-exit-analysis", analysis);
+    });
 
     inst.last_played = Some(Utc::now().to_rfc3339());
     save_instance(&inst)?;
@@ -734,6 +834,18 @@ pub fn launch_instance(
     );
     crate::console_log::append(Some(&app), summary.clone(), "info");
     Ok(summary)
+}
+
+pub fn last_game_exit_analysis(instance_id: String) -> Result<Option<GameExitAnalysis>, String> {
+    let path = minecraft_dir(&instance_id)?
+        .join("logs")
+        .join("euml-last-exit-analysis.json");
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let analysis = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    Ok(Some(analysis))
 }
 
 fn tee_process_output(

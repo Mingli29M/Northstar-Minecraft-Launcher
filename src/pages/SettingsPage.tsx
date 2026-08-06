@@ -229,6 +229,30 @@ export function SettingsPage() {
                   { value: "bmclapi", label: t("downloadSourceBmclapi") },
                 ]}
               />
+              <Selector
+                label={t("reqguardDeepValidation")}
+                description={t("reqguardDeepValidationHint")}
+                value={settings.reqguard_deep_validation === false ? "off" : "on"}
+                onChange={(v) =>
+                  setSettings({ ...settings, reqguard_deep_validation: v === "on" })
+                }
+                options={[
+                  { value: "on", label: t("reqguardDeepOn") },
+                  { value: "off", label: t("reqguardDeepOff") },
+                ]}
+              />
+              <Selector
+                label={t("reqguardLocalScan")}
+                description={t("reqguardLocalScanHint")}
+                value={settings.reqguard_local_scan === true ? "on" : "off"}
+                onChange={(v) =>
+                  setSettings({ ...settings, reqguard_local_scan: v === "on" })
+                }
+                options={[
+                  { value: "off", label: t("reqguardLocalOff") },
+                  { value: "on", label: t("reqguardLocalOn") },
+                ]}
+              />
               <TextInput
                 label={t("downloadThreads")}
                 description={t("downloadThreadsHint")}

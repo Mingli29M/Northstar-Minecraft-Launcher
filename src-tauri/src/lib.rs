@@ -7,6 +7,7 @@ mod dedicated;
 mod download;
 mod favorites;
 mod folders;
+mod hangar;
 mod host_files;
 mod host_process;
 mod host_stats;
@@ -199,6 +200,21 @@ fn resolve_java(instance_id: String) -> Result<String, String> {
 #[tauri::command]
 fn detect_java_installs() -> Result<Vec<String>, String> {
     java::detect_java_installs()
+}
+
+#[tauri::command]
+fn required_java_for_game(game_version: String) -> u32 {
+    java::required_java_for_game(&game_version)
+}
+
+#[tauri::command]
+fn java_status(game_version: String) -> Result<models::JavaStatus, String> {
+    java::java_status(game_version)
+}
+
+#[tauri::command]
+fn download_temurin(major: u32) -> Result<String, String> {
+    java::download_temurin(major)
 }
 
 #[tauri::command]
@@ -444,13 +460,30 @@ fn export_mrpack(instance_id: String, dest_path: String) -> Result<String, Strin
 }
 
 #[tauri::command]
-fn reqguard_scan(instance_id: String) -> Result<models::ReqScanResult, String> {
-    reqguard::scan_instance(&instance_id)
+async fn reqguard_scan(instance_id: String) -> Result<models::ReqScanResult, String> {
+    tauri::async_runtime::spawn_blocking(move || reqguard::scan_configured(&instance_id))
+        .await
+        .map_err(|e| format!("ReqGuard worker failed: {e}"))?
 }
 
 #[tauri::command]
-fn reqguard_resolve(instance_id: String, missing_mod_id: String) -> Result<models::ReqScanResult, String> {
-    reqguard::resolve_missing(instance_id, missing_mod_id)
+async fn reqguard_resolve(
+    instance_id: String,
+    missing_mod_id: String,
+    project_id: Option<String>,
+) -> Result<models::ReqScanResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        reqguard::resolve_missing(instance_id, missing_mod_id, project_id)
+    })
+    .await
+    .map_err(|e| format!("ReqGuard worker failed: {e}"))?
+}
+
+#[tauri::command]
+async fn reqguard_resolve_all(instance_id: String) -> Result<models::ReqScanResult, String> {
+    tauri::async_runtime::spawn_blocking(move || reqguard::resolve_all_missing(instance_id))
+        .await
+        .map_err(|e| format!("ReqGuard worker failed: {e}"))?
 }
 
 #[tauri::command]
@@ -492,6 +525,44 @@ fn list_worlds(instance_id: String) -> Result<Vec<models::ContentItem>, String> 
 }
 
 #[tauri::command]
+fn list_worlds_detailed(instance_id: String) -> Result<Vec<models::WorldInfo>, String> {
+    content::list_worlds_detailed(instance_id)
+}
+
+#[tauri::command]
+fn list_world_backups(instance_id: String, world_name: String) -> Result<Vec<models::WorldBackup>, String> {
+    content::list_world_backups(instance_id, world_name)
+}
+
+#[tauri::command]
+fn create_world_backup(instance_id: String, world_name: String) -> Result<models::WorldBackup, String> {
+    content::create_world_backup(instance_id, world_name)
+}
+
+#[tauri::command]
+fn restore_world_backup(
+    instance_id: String,
+    world_name: String,
+    backup_name: String,
+) -> Result<(), String> {
+    content::restore_world_backup(instance_id, world_name, backup_name)
+}
+
+#[tauri::command]
+fn delete_world_backup(
+    instance_id: String,
+    world_name: String,
+    backup_name: String,
+) -> Result<(), String> {
+    content::delete_world_backup(instance_id, world_name, backup_name)
+}
+
+#[tauri::command]
+fn detect_litematica(instance_id: String) -> Result<models::LitematicaInfo, String> {
+    content::detect_litematica(instance_id)
+}
+
+#[tauri::command]
 fn list_screenshots(instance_id: String) -> Result<Vec<models::ContentItem>, String> {
     content::list_screenshots(instance_id)
 }
@@ -527,6 +598,13 @@ fn read_logs(instance_id: String) -> Result<Vec<models::LogLine>, String> {
 #[tauri::command]
 fn analyze_crash(instance_id: String) -> Result<Vec<models::CrashHint>, String> {
     content::analyze_crash(instance_id)
+}
+
+#[tauri::command]
+fn last_game_exit_analysis(
+    instance_id: String,
+) -> Result<Option<models::GameExitAnalysis>, String> {
+    launch::last_game_exit_analysis(instance_id)
 }
 
 #[tauri::command]
@@ -838,6 +916,55 @@ async fn dedicated_download_mods(id: String, dest_path: String) -> Result<String
         .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+fn hangar_search_plugins(
+    query: String,
+    platform: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<hangar::HangarProject>, String> {
+    hangar::search_plugins(query, platform.unwrap_or_else(|| "PAPER".into()), limit.unwrap_or(24))
+}
+
+#[tauri::command]
+fn hangar_list_plugin_versions(
+    author: String,
+    slug: String,
+    platform: Option<String>,
+) -> Result<Vec<hangar::HangarVersion>, String> {
+    hangar::list_plugin_versions(author, slug, platform.unwrap_or_else(|| "PAPER".into()))
+}
+
+#[tauri::command]
+async fn hangar_install_plugin(
+    dedicated_id: String,
+    author: String,
+    slug: String,
+    version_or_latest: String,
+    platform: Option<String>,
+) -> Result<hangar::HostPluginEntry, String> {
+    let platform = platform.unwrap_or_else(|| "PAPER".into());
+    tokio::task::spawn_blocking(move || {
+        hangar::install_plugin(dedicated_id, author, slug, version_or_latest, platform)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn dedicated_list_plugins(id: String) -> Result<Vec<hangar::HostPluginEntry>, String> {
+    host_files::list_plugins(id)
+}
+
+#[tauri::command]
+fn dedicated_set_plugin_enabled(id: String, name: String, enabled: bool) -> Result<Vec<hangar::HostPluginEntry>, String> {
+    host_files::set_plugin_enabled(id, name, enabled)
+}
+
+#[tauri::command]
+fn dedicated_delete_plugin(id: String, name: String) -> Result<Vec<hangar::HostPluginEntry>, String> {
+    host_files::delete_plugin(id, name)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Launcher UI does not need accelerated WebKit compositing. On Linux (esp.
@@ -890,6 +1017,9 @@ pub fn run() {
             list_game_versions_detailed,
             resolve_java,
             detect_java_installs,
+            required_java_for_game,
+            java_status,
+            download_temurin,
             prepare_instance,
             launch_instance,
             install_loader,
@@ -914,18 +1044,26 @@ pub fn run() {
             export_mrpack,
             reqguard_scan,
             reqguard_resolve,
+            reqguard_resolve_all,
             list_content,
             install_content_zip,
             delete_content,
             open_content_item,
             import_save,
             list_worlds,
+            list_worlds_detailed,
+            list_world_backups,
+            create_world_backup,
+            restore_world_backup,
+            delete_world_backup,
+            detect_litematica,
             list_screenshots,
             list_datapacks,
             install_datapack,
             delete_datapack,
             read_logs,
             analyze_crash,
+            last_game_exit_analysis,
             import_foreign_instance,
             import_instance_folder,
             list_servers,
@@ -966,6 +1104,12 @@ pub fn run() {
             dedicated_upload_mods,
             dedicated_download_world,
             dedicated_download_mods,
+            hangar_search_plugins,
+            hangar_list_plugin_versions,
+            hangar_install_plugin,
+            dedicated_list_plugins,
+            dedicated_set_plugin_enabled,
+            dedicated_delete_plugin,
             get_world_settings,
             save_world_settings,
             list_instance_configs,

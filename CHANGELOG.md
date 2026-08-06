@@ -14,6 +14,52 @@ Security hardening for local file access and avatar downloads.
 - Settings free-text background field rejects absolute filesystem paths (remote / `data:` URLs still allowed)
 - **Avatar fetch SSRF controls** — HTTPS-only host allowlist, no HTTP redirects, hex UUID validation, and a 2 MiB response size cap so profile-supplied skin URLs cannot reach internal hosts or exhaust memory
 
+## 1.2.2 — 2026-08-05
+
+ReqGuard install fixes and experimental local-scan toggle.
+
+### ReqGuard
+- Fix Install / Install-all buttons: surface install errors, pass Modrinth `project_id`, and re-scan with the same Settings modes after install
+- Install-all now uses the configured (deep/local) scan instead of a local-only pass that ignored Modrinth SoT issues
+- **Local metadata scan** is opt-in and labeled **Experimental** (off by default); Play is only gated when it is enabled
+- Deep Modrinth validation remains the recommended path and stays in the background worker
+
+## 1.2.1 — 2026-08-05
+
+Hangar plugins for Paper/Purpur Host and ReqGuard polish.
+
+### Host plugins
+- **Plugins tab** on Paper/Purpur dedicated servers: search [Hangar](https://hangar.papermc.io), install jars into `runtime/plugins/`
+- Installed list with enable/disable (`.jar` / `.jar.disabled`) and delete
+
+### ReqGuard
+- `reqguard_resolve_all` exposed on Launch and Versions (install all missing)
+- Modrinth dependency lookup User-Agent bumped to `Northstar/1.2.1`
+
+## 1.2.0 — 2026-08-05
+
+ReqGuard Modrinth source-of-truth, crash analysis, Java Temurin download, world backups, and Litematica notice.
+
+### ReqGuard
+- ReqGuard scans run in a background worker; optional deep validation checks the actual instance jars against Modrinth
+- Canonical mod-id aliases, multi-mod jar ownership filtering, and self-dependency rejection fix false Fabric API and “mod requires itself” reports
+- Local launch gate stays offline and fast; exotic version ranges warn instead of hard-error
+- Modrinth dependency SoT uses batched SHA1 lookup across every jar, then reconciles project slugs with local mod ids so manual/CurseForge installs are recognized
+- Resolve installs by Modrinth project id (with required dependency chain); “Install all missing”
+
+### Crash analysis
+- Prefer newest crash-report + `latest.log`; extract exception/frames; stable hint codes for UI
+- Monitor Minecraft for its full lifetime, analyze abnormal exits automatically, and persist an in-app message for the next launcher session
+
+### Prerequisites
+- Java status panel on Download → Game; one-click Adoptium Temurin download into launcher-managed Java dir
+- Modrinth installs auto-pull required dependency chain
+
+### Worlds
+- Per-world backup fold-down (create / restore / delete) under `saves/<world>/backups/`
+- Settings → Backups `auto_backup_worlds` runs on launch with keep-last-N pruning
+- Litematica detection notice with schematics folder path
+
 ## 1.1.2 — 2026-08-05
 
 Settings sections, license/changelog in About, panel opacity, loader icons, and shared target-version selection.

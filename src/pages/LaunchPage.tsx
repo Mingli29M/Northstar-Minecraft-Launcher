@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { listen } from "@tauri-apps/api/event";
 import { DismissibleBanner } from "../components/DismissibleBanner";
 import { NewsPanel } from "../components/NewsPanel";
 import { Button } from "@astryxdesign/core/Button";
@@ -19,7 +20,7 @@ import { FavoriteButton } from "../components/FavoriteButton";
 import { preferredInstanceId, rememberPreferredInstance } from "../lib/preferredInstance";
 import { favoriteId } from "../lib/types";
 import { useI18n } from "../i18n";
-import type { Account, CrashHint, Instance, InstanceFolder, LauncherSettings, ReqScanResult } from "../lib/types";
+import type { Account, CrashHint, GameExitAnalysis, Instance, InstanceFolder, LauncherSettings, ReqScanResult } from "../lib/types";
 import { useDownloadStatus } from "../lib/downloadStatus";
 
 export function LaunchPage() {
@@ -35,9 +36,12 @@ export function LaunchPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [scan, setScan] = useState<ReqScanResult | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [fixBusy, setFixBusy] = useState(false);
+  const [fixError, setFixError] = useState<string | null>(null);
   const [crashes, setCrashes] = useState<CrashHint[]>([]);
+  const [exitAnalysis, setExitAnalysis] = useState<GameExitAnalysis | null>(null);
   const [override, setOverride] = useState(false);
-  const [, startTransition] = useTransition();
 
   const busyLabel = useMemo(() => {
     if (!busy) return t("startGame");
@@ -133,34 +137,100 @@ export function LaunchPage() {
     if (!selected) {
       setScan(null);
       setCrashes([]);
+      setExitAnalysis(null);
       return;
     }
+    setExitAnalysis(null);
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      startTransition(() => {
-        api
-          .reqguardScan(selected.id)
-          .then((s) => {
-            if (!cancelled) setScan(s);
-          })
-          .catch(() => {
-            if (!cancelled) setScan(null);
-          });
-        api
-          .analyzeCrash(selected.id)
-          .then((c) => {
-            if (!cancelled) setCrashes(c);
-          })
-          .catch(() => {
-            if (!cancelled) setCrashes([]);
-          });
-      });
+      setScanBusy(true);
+      api
+        .reqguardScan(selected.id)
+        .then((s) => {
+          if (!cancelled) setScan(s);
+        })
+        .catch(() => {
+          if (!cancelled) setScan(null);
+        })
+        .finally(() => {
+          if (!cancelled) setScanBusy(false);
+        });
+      api
+        .analyzeCrash(selected.id)
+        .then((c) => {
+          if (!cancelled) setCrashes(c);
+        })
+        .catch(() => {
+          if (!cancelled) setCrashes([]);
+        });
+      api
+        .lastGameExitAnalysis(selected.id)
+        .then((analysis) => {
+          if (!cancelled) setExitAnalysis(analysis);
+        })
+        .catch(() => {
+          if (!cancelled) setExitAnalysis(null);
+        });
     }, 50);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
   }, [selected]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<GameExitAnalysis>("euml:game-exit-analysis", (event) => {
+      const analysis = event.payload;
+      if (analysis.instance_id !== selected?.id) return;
+      setExitAnalysis(analysis);
+      setCrashes(analysis.hints);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, [selected?.id]);
+
+  async function rerunReqguard() {
+    if (!selected || scanBusy || fixBusy) return;
+    setScanBusy(true);
+    setFixError(null);
+    try {
+      setScan(await api.reqguardScan(selected.id));
+    } finally {
+      setScanBusy(false);
+    }
+  }
+
+  async function fixMissing(missingModId: string, projectId?: string | null) {
+    if (!selected || fixBusy) return;
+    setFixBusy(true);
+    setFixError(null);
+    try {
+      setScan(await api.reqguardResolve(selected.id, missingModId, projectId));
+    } catch (e) {
+      const msg = String(e);
+      setFixError(msg);
+      appendConsole(`${t("reqguardFixFailed")}: ${msg}`, "error");
+    } finally {
+      setFixBusy(false);
+    }
+  }
+
+  async function fixAllMissing() {
+    if (!selected || fixBusy) return;
+    setFixBusy(true);
+    setFixError(null);
+    try {
+      setScan(await api.reqguardResolveAll(selected.id));
+    } catch (e) {
+      const msg = String(e);
+      setFixError(msg);
+      appendConsole(`${t("reqguardFixFailed")}: ${msg}`, "error");
+    } finally {
+      setFixBusy(false);
+    }
+  }
 
   async function onLaunch(instanceId?: string) {
     const id = instanceId ?? selectedId;
@@ -214,7 +284,7 @@ export function LaunchPage() {
                 <Selector
                   label={t("selectVersion")}
                   value={selectedId}
-                  onChange={(v) => startTransition(() => setSelectedId(v))}
+                  onChange={setSelectedId}
                   options={
                     versionOptions.length
                       ? versionOptions
@@ -295,7 +365,7 @@ export function LaunchPage() {
                       key={`${section.key}-${inst.id}`}
                       className={`euml-list-row${selectedId === inst.id ? " is-selected" : ""}`}
                       style={{ cursor: "pointer" }}
-                      onClick={() => startTransition(() => setSelectedId(inst.id))}
+                      onClick={() => setSelectedId(inst.id)}
                       onDoubleClick={() => void onLaunch(inst.id)}
                     >
                       {inst.icon_path ? (
@@ -329,26 +399,89 @@ export function LaunchPage() {
 
         {status && <DismissibleBanner status="info" title={status} onDismiss={() => setStatus(null)} />}
         {error && <DismissibleBanner status="error" title={error} onDismiss={() => setError(null)} />}
+        {exitAnalysis && (
+          <DismissibleBanner
+            status="error"
+            title={`${t("gameExitAnalysis")}: ${exitAnalysis.summary}`}
+            onDismiss={() => setExitAnalysis(null)}
+          />
+        )}
       </VStack>
 
       <VStack gap={3} style={{ width: 320, flexShrink: 0 }}>
         <Card padding={3}>
-          <Text weight="semibold" display="block" style={{ marginBottom: 8 }}>
-            {t("reqguard")}
-          </Text>
+          <HStack justify="between" align="center" style={{ marginBottom: 8 }}>
+            <Text weight="semibold" display="block">
+              {t("reqguard")}
+            </Text>
+            {selected && (
+              <Button
+                label={t("rerunReqguard")}
+                size="sm"
+                variant="secondary"
+                isDisabled={scanBusy}
+                onClick={() => void rerunReqguard()}
+              />
+            )}
+          </HStack>
           {!selected && <Text color="secondary">{t("reqguardPick")}</Text>}
-          {selected && scan && scan.issues.length === 0 && (
+          {selected && (scanBusy || fixBusy) && (
+            <HStack gap={2} align="center">
+              <Spinner size="sm" />
+              <Text color="secondary" type="supporting">
+                {fixBusy ? t("installingMissing") : t("reqguardScanning")}
+              </Text>
+            </HStack>
+          )}
+          {fixError && (
+            <DismissibleBanner
+              status="error"
+              title={fixError}
+              onDismiss={() => setFixError(null)}
+            />
+          )}
+          {selected &&
+            scan &&
+            !scanBusy &&
+            !fixBusy &&
+            !scan.local_scan &&
+            !scan.deep_scan &&
+            scan.issues.length === 0 && (
+              <Text color="secondary" type="supporting">
+                {t("reqguardModesIdle")}
+              </Text>
+            )}
+          {selected && scan && scan.issues.length === 0 && (scan.local_scan || scan.deep_scan) && (
             <Text color="accent">{t("reqguardOk", { count: scan.mod_count })}</Text>
           )}
-          {scan?.issues.slice(0, 5).map((issue, i) => (
+          {selected && scan && scan.issues.some((i) => i.severity === "error") && (
+            <Button
+              label={t("installAllMissing")}
+              size="sm"
+              variant="primary"
+              style={{ marginBottom: 8 }}
+              isDisabled={fixBusy || scanBusy}
+              onClick={() => void fixAllMissing()}
+            />
+          )}
+          {scan?.issues.slice(0, 8).map((issue, i) => (
             <VStack key={i} gap={1} style={{ marginBottom: 8 }}>
-              <Text type="supporting">{issue.message}</Text>
-              {issue.missing_mod_id && selected && (
+              <Text type="supporting">
+                {issue.source ? `[${issue.source}] ` : ""}
+                {issue.message}
+              </Text>
+              {(issue.project_id || issue.missing_mod_id) && selected && (
                 <Button
-                  label={`${t("installMissing")}: ${issue.missing_mod_id}`}
+                  label={`${t("installMissing")}: ${issue.missing_mod_id || issue.project_id}`}
                   size="sm"
                   variant="secondary"
-                  onClick={async () => setScan(await api.reqguardResolve(selected.id, issue.missing_mod_id!))}
+                  isDisabled={fixBusy || scanBusy}
+                  onClick={() =>
+                    void fixMissing(
+                      issue.missing_mod_id || issue.project_id!,
+                      issue.project_id,
+                    )
+                  }
                 />
               )}
             </VStack>

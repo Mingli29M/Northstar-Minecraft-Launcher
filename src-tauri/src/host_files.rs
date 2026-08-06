@@ -187,3 +187,60 @@ pub fn download_mods_zip(id: String, dest_path: String) -> Result<String, String
     zip_dir(&mods, &dest)?;
     Ok(dest_path)
 }
+
+fn plugins_dir(id: &str) -> Result<PathBuf, String> {
+    let dir = dedicated_runtime(id)?.join("plugins");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// List installed plugin jars under runtime/plugins/ (.jar / .jar.disabled).
+pub fn list_plugins(id: String) -> Result<Vec<crate::hangar::HostPluginEntry>, String> {
+    let _ = dedicated::get_dedicated(&id)?;
+    let plugins = plugins_dir(&id)?;
+    let mut out = Vec::new();
+    for entry in fs::read_dir(&plugins).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.ends_with(".jar") || name.ends_with(".jar.disabled") {
+            let enabled = name.ends_with(".jar") && !name.ends_with(".jar.disabled");
+            out.push(crate::hangar::HostPluginEntry {
+                name: name.clone(),
+                enabled,
+                path: entry.path().to_string_lossy().to_string(),
+            });
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+pub fn set_plugin_enabled(id: String, name: String, enabled: bool) -> Result<Vec<crate::hangar::HostPluginEntry>, String> {
+    let _ = dedicated::get_dedicated(&id)?;
+    let plugins = plugins_dir(&id)?;
+    let current = plugins.join(&name);
+    if !current.exists() {
+        return Err("Plugin file not found".into());
+    }
+    let target_name = if enabled {
+        name.trim_end_matches(".disabled").to_string()
+    } else if name.ends_with(".disabled") {
+        name.clone()
+    } else {
+        format!("{name}.disabled")
+    };
+    let target = plugins.join(&target_name);
+    if current != target {
+        fs::rename(current, target).map_err(|e| e.to_string())?;
+    }
+    list_plugins(id)
+}
+
+pub fn delete_plugin(id: String, name: String) -> Result<Vec<crate::hangar::HostPluginEntry>, String> {
+    let _ = dedicated::get_dedicated(&id)?;
+    let path = plugins_dir(&id)?.join(&name);
+    if path.exists() {
+        fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+    list_plugins(id)
+}
