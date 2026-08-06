@@ -1,8 +1,10 @@
-use crate::models::{ContentItem, LogLine};
+use crate::models::{ContentItem, CrashHint, LogLine, LitematicaInfo, WorldBackup, WorldInfo};
 use crate::paths::minecraft_dir;
+use chrono::{NaiveDateTime, Utc};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use walkdir::WalkDir;
 use zip::ZipArchive;
 
@@ -184,6 +186,277 @@ pub fn list_worlds(instance_id: String) -> Result<Vec<ContentItem>, String> {
     list_content(instance_id, "saves".into())
 }
 
+fn world_path(instance_id: &str, world_name: &str) -> Result<PathBuf, String> {
+    let path = minecraft_dir(instance_id)?
+        .join("saves")
+        .join(world_name);
+    if !path.is_dir() {
+        return Err(format!("World not found: {world_name}"));
+    }
+    Ok(path)
+}
+
+fn backups_root(instance_id: &str, world_name: &str) -> Result<PathBuf, String> {
+    Ok(world_path(instance_id, world_name)?.join("backups"))
+}
+
+fn backup_timestamp_name() -> String {
+    Utc::now().format("%Y-%m-%d_%H-%M-%S").to_string()
+}
+
+fn backup_created_at(name: &str, path: &Path) -> String {
+    if let Ok(dt) = NaiveDateTime::parse_from_str(name, "%Y-%m-%d_%H-%M-%S") {
+        return dt.and_utc().to_rfc3339();
+    }
+    if let Ok(m) = fs::metadata(path) {
+        if let Ok(t) = m.modified() {
+            if let Ok(dt) = t.duration_since(std::time::UNIX_EPOCH) {
+                if let Some(utc) = chrono::DateTime::<Utc>::from_timestamp(dt.as_secs() as i64, 0) {
+                    return utc.to_rfc3339();
+                }
+            }
+        }
+    }
+    Utc::now().to_rfc3339()
+}
+
+fn copy_world_for_backup(src: &Path, dest: &Path) -> Result<(), String> {
+    fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    for entry in fs::read_dir(src).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name == "backups" {
+            continue;
+        }
+        let target = dest.join(&name);
+        if entry.path().is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), &target).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn clear_world_except_backups(world_dir: &Path) -> Result<(), String> {
+    for entry in fs::read_dir(world_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == "backups" {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
+        } else if path.is_file() {
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn merge_backup_into_world(backup_dir: &Path, world_dir: &Path) -> Result<(), String> {
+    for entry in fs::read_dir(backup_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name == "backups" {
+            continue;
+        }
+        let target = world_dir.join(&name);
+        if entry.path().is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::copy(entry.path(), &target).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+pub fn list_world_backups(instance_id: String, world_name: String) -> Result<Vec<WorldBackup>, String> {
+    let root = backups_root(&instance_id, &world_name)?;
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for entry in fs::read_dir(&root).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        out.push(WorldBackup {
+            created_at: backup_created_at(&name, &entry.path()),
+            path: entry.path().to_string_lossy().to_string(),
+            name,
+        });
+    }
+    out.sort_by(|a, b| b.name.cmp(&a.name));
+    Ok(out)
+}
+
+pub fn create_world_backup(instance_id: String, world_name: String) -> Result<WorldBackup, String> {
+    let world_dir = world_path(&instance_id, &world_name)?;
+    let root = backups_root(&instance_id, &world_name)?;
+    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let name = backup_timestamp_name();
+    let dest = root.join(&name);
+    copy_world_for_backup(&world_dir, &dest)?;
+    Ok(WorldBackup {
+        name: name.clone(),
+        path: dest.to_string_lossy().to_string(),
+        created_at: backup_created_at(&name, &dest),
+    })
+}
+
+pub fn restore_world_backup(
+    instance_id: String,
+    world_name: String,
+    backup_name: String,
+) -> Result<(), String> {
+    let world_dir = world_path(&instance_id, &world_name)?;
+    let backup_dir = backups_root(&instance_id, &world_name)?.join(&backup_name);
+    if !backup_dir.is_dir() {
+        return Err(format!("Backup not found: {backup_name}"));
+    }
+    let _ = create_world_backup(instance_id.clone(), world_name.clone())?;
+    clear_world_except_backups(&world_dir)?;
+    merge_backup_into_world(&backup_dir, &world_dir)
+}
+
+pub fn delete_world_backup(
+    instance_id: String,
+    world_name: String,
+    backup_name: String,
+) -> Result<(), String> {
+    let path = backups_root(&instance_id, &world_name)?.join(&backup_name);
+    if !path.is_dir() {
+        return Err(format!("Backup not found: {backup_name}"));
+    }
+    fs::remove_dir_all(&path).map_err(|e| e.to_string())
+}
+
+pub fn prune_world_backups(instance_id: &str, world_name: &str, keep: u32) -> Result<(), String> {
+    let mut backups = list_world_backups(instance_id.to_string(), world_name.to_string())?;
+    if backups.len() <= keep as usize {
+        return Ok(());
+    }
+    backups.sort_by(|a, b| b.name.cmp(&a.name));
+    for backup in backups.into_iter().skip(keep as usize) {
+        delete_world_backup(
+            instance_id.to_string(),
+            world_name.to_string(),
+            backup.name,
+        )?;
+    }
+    Ok(())
+}
+
+pub fn auto_backup_all_worlds(instance_id: &str, keep: u32) -> Result<(), String> {
+    let saves = minecraft_dir(instance_id)?.join("saves");
+    if !saves.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(&saves).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        create_world_backup(instance_id.to_string(), name.clone())?;
+        prune_world_backups(instance_id, &name, keep)?;
+    }
+    Ok(())
+}
+
+pub fn list_worlds_detailed(instance_id: String) -> Result<Vec<WorldInfo>, String> {
+    let saves = minecraft_dir(&instance_id)?.join("saves");
+    fs::create_dir_all(&saves).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for entry in fs::read_dir(&saves).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let backup_count = list_world_backups(instance_id.clone(), name.clone())?
+            .len() as u32;
+        out.push(WorldInfo {
+            name: name.clone(),
+            path: entry.path().to_string_lossy().to_string(),
+            backup_count,
+            has_backups: backup_count > 0,
+            icon_path: crate::icons::icon_for_world(&entry.path()),
+        });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+fn jar_is_litematica(path: &Path, file_name: &str) -> bool {
+    if file_name.to_lowercase().contains("litematica") {
+        return true;
+    }
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    let Ok(mut archive) = ZipArchive::new(std::io::Cursor::new(bytes)) else {
+        return false;
+    };
+    for meta_name in ["fabric.mod.json", "quilt.mod.json"] {
+        let Ok(mut f) = archive.by_name(meta_name) else {
+            continue;
+        };
+        let mut raw = String::new();
+        if f.read_to_string(&mut raw).is_err() {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if let Some(id) = v.get("id").and_then(|x| x.as_str()) {
+                if id.to_lowercase().contains("litematica") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn detect_litematica(instance_id: String) -> Result<LitematicaInfo, String> {
+    let mc = minecraft_dir(&instance_id)?;
+    let schematics_path = mc.join("schematics");
+    let mods = mc.join("mods");
+    let mut present = false;
+    if mods.is_dir() {
+        for entry in fs::read_dir(&mods).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.ends_with(".jar") {
+                continue;
+            }
+            if jar_is_litematica(&entry.path(), &name) {
+                present = true;
+                break;
+            }
+        }
+    }
+    Ok(LitematicaInfo {
+        present,
+        schematics_path: schematics_path.to_string_lossy().to_string(),
+    })
+}
+
 pub fn list_screenshots(instance_id: String) -> Result<Vec<ContentItem>, String> {
     list_content(instance_id, "screenshots".into())
 }
@@ -356,41 +629,216 @@ pub fn read_logs(instance_id: String) -> Result<Vec<LogLine>, String> {
     Ok(out)
 }
 
-pub fn analyze_crash(instance_id: String) -> Result<Vec<crate::models::CrashHint>, String> {
+pub fn analyze_crash(instance_id: String) -> Result<Vec<CrashHint>, String> {
+    analyze_crash_since(instance_id, None)
+}
+
+pub fn analyze_crash_since(
+    instance_id: String,
+    since: Option<SystemTime>,
+) -> Result<Vec<CrashHint>, String> {
     let mc = minecraft_dir(&instance_id)?;
-    let mut blobs = String::new();
-    for candidate in [mc.join("crash-reports"), mc.join("logs")] {
-        if !candidate.exists() {
-            continue;
+    let Some((_path, text)) = find_crash_source(&mc, since) else {
+        return Ok(Vec::new());
+    };
+
+    let exception = extract_exception_type(&text);
+    let frames = extract_stack_frames(&text, 5);
+    let mut params = Vec::new();
+    if let Some(ref ex) = exception {
+        params.push(ex.clone());
+    }
+    params.extend(frames.clone());
+
+    let lower = text.to_lowercase();
+    let mut hints = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    let rules: &[(&str, &str, &str, &str, fn(&str) -> bool)] = &[
+        (
+            "oom",
+            "Out of memory",
+            "Increase allocated memory in instance settings or close other applications.",
+            "error",
+            |s| {
+                s.contains("outofmemoryerror")
+                    || s.contains("java heap space")
+                    || s.contains("gc overhead limit exceeded")
+            },
+        ),
+        (
+            "mixin_conflict",
+            "Mixin conflict",
+            "Often caused by mod conflicts. Try disabling recently added mods or check ReqGuard.",
+            "error",
+            |s| {
+                s.contains("mixin")
+                    || s.contains("mixinapplyerror")
+                    || s.contains("mixin transformation")
+            },
+        ),
+        (
+            "mod_resolution",
+            "Mod dependency unresolved",
+            "Dependency resolution failed at launch — ReqGuard can catch this before starting.",
+            "error",
+            |s| s.contains("modresolutionexception") || s.contains("mod resolution"),
+        ),
+        (
+            "missing_class",
+            "Missing class or dependency",
+            "A required mod or library may be missing. Check dependencies and loader components.",
+            "error",
+            |s| {
+                s.contains("classnotfoundexception")
+                    || s.contains("noclassdeffounderror")
+            },
+        ),
+        (
+            "incompatible",
+            "Version incompatible",
+            "A mod or loader may not match the current Minecraft version.",
+            "warn",
+            |s| {
+                s.contains("incompatible")
+                    || s.contains("incompatibleclasschangeerror")
+            },
+        ),
+        (
+            "fabric_loader",
+            "Fabric Loader issue",
+            "Verify Fabric Loader matches your game version.",
+            "warn",
+            |s| s.contains("fabric loader") || s.contains("fabric-loader") || s.contains("net.fabricmc.loader"),
+        ),
+        (
+            "opengl",
+            "Graphics / OpenGL",
+            "Update graphics drivers or disable shader packs and retry.",
+            "warn",
+            |s| {
+                s.contains("opengl")
+                    || s.contains("glfw")
+                    || s.contains("lwjgl")
+                    || s.contains("graphics")
+            },
+        ),
+    ];
+
+    for (code, title, detail, severity, test) in rules {
+        if test(&lower) && seen.insert(*code) {
+            hints.push(CrashHint {
+                code: (*code).into(),
+                title: (*title).into(),
+                detail: (*detail).into(),
+                severity: (*severity).into(),
+                params: params.clone(),
+            });
         }
-        if let Ok(entries) = fs::read_dir(&candidate) {
-            for entry in entries.flatten().take(8) {
-                if let Ok(text) = fs::read_to_string(entry.path()) {
-                    blobs.push_str(&text);
-                    blobs.push('\n');
+    }
+
+    if hints.is_empty() {
+        hints.push(CrashHint {
+            code: "unknown".into(),
+            title: "Unknown crash".into(),
+            detail: "No known pattern matched. Review the crash report or latest.log for details."
+                .into(),
+            severity: "warn".into(),
+            params,
+        });
+    }
+
+    Ok(hints)
+}
+
+fn find_crash_source(mc: &Path, since: Option<SystemTime>) -> Option<(PathBuf, String)> {
+    let crash_dir = mc.join("crash-reports");
+    if crash_dir.is_dir() {
+        let mut files: Vec<_> = fs::read_dir(&crash_dir)
+            .ok()?
+            .flatten()
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .map(|x| x.eq_ignore_ascii_case("txt"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        files.sort_by_key(|e| {
+            e.metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .unwrap_or(SystemTime::UNIX_EPOCH)
+        });
+        files.reverse();
+        for entry in files {
+            if !file_is_new_enough(&entry.path(), since) {
+                continue;
+            }
+            if let Ok(text) = fs::read_to_string(entry.path()) {
+                if !text.trim().is_empty() {
+                    return Some((entry.path(), text));
                 }
             }
         }
     }
-    let lower = blobs.to_lowercase();
-    let mut hints = Vec::new();
-    let rules = [
-        ("OutOfMemoryError", "内存不足", "请在版本设置中提高内存，或关闭其它占用内存的程序。", "error"),
-        ("mixin", "Mixin 冲突", "常见于模组冲突。尝试禁用最近添加的模组，或查看 ReqGuard。", "error"),
-        ("incompatible", "版本不兼容", "模组/加载器与当前 Minecraft 版本可能不匹配。", "warn"),
-        ("fabric loader", "Fabric Loader 问题", "检查 Fabric Loader 是否与游戏版本匹配。", "warn"),
-        ("modresolutionexception", "模组依赖未满足", "启动前依赖解析失败——这正是 ReqGuard 要提前拦截的问题。", "error"),
-        ("classnotfoundexception", "缺少类/依赖", "可能缺少前置模组或加载器组件。", "error"),
-        ("opengl", "显卡 / OpenGL", "更新显卡驱动，或关闭光影后再试。", "warn"),
-    ];
-    for (needle, title, detail, severity) in rules {
-        if lower.contains(&needle.to_lowercase()) {
-            hints.push(crate::models::CrashHint {
-                title: title.into(),
-                detail: detail.into(),
-                severity: severity.into(),
-            });
+
+    let latest = mc.join("logs").join("latest.log");
+    if latest.is_file() && file_is_new_enough(&latest, since) {
+        if let Ok(text) = fs::read_to_string(&latest) {
+            if !text.trim().is_empty() {
+                return Some((latest, text));
+            }
         }
     }
-    Ok(hints)
+    None
+}
+
+fn file_is_new_enough(path: &Path, since: Option<SystemTime>) -> bool {
+    let Some(since) = since else {
+        return true;
+    };
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .map(|modified| modified >= since)
+        .unwrap_or(false)
+}
+
+fn extract_exception_type(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.contains("Exception")
+            || trimmed.contains("Error:")
+            || trimmed.ends_with("Error")
+            || trimmed.starts_with("Caused by:")
+        {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+fn extract_stack_frames(text: &str, limit: usize) -> Vec<String> {
+    let mut frames = Vec::new();
+    for line in text.lines() {
+        if frames.len() >= limit {
+            break;
+        }
+        let trimmed = line.trim();
+        let frame = if let Some(rest) = trimmed.strip_prefix("at ") {
+            rest
+        } else if let Some(rest) = line.split("\tat ").nth(1) {
+            rest.trim()
+        } else {
+            continue;
+        };
+        if !frame.is_empty() && !frames.iter().any(|x| x == frame) {
+            frames.push(frame.to_string());
+        }
+    }
+    frames
 }

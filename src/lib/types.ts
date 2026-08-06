@@ -66,6 +66,8 @@ export interface LauncherSettings {
   auto_backup_worlds?: boolean | null;
   /** Max automatic world backups to keep per world. */
   auto_backup_keep?: number | null;
+  /** Include network-backed Modrinth checks in background ReqGuard scans. */
+  reqguard_deep_validation?: boolean | null;
 }
 
 export type DedicatedLoader =
@@ -192,12 +194,16 @@ export interface ReqIssue {
   message: string;
   missing_mod_id: string | null;
   source_file: string | null;
+  source?: string | null;
+  project_id?: string | null;
 }
 
 export interface ReqScanResult {
   issues: ReqIssue[];
   mod_count: number;
   scanned_at: string;
+  deep_scan?: boolean;
+  duration_ms?: number;
 }
 
 export interface ContentItem {
@@ -205,6 +211,25 @@ export interface ContentItem {
   path: string;
   kind: string;
   icon_path?: string | null;
+}
+
+export interface WorldBackup {
+  name: string;
+  path: string;
+  created_at: string;
+}
+
+export interface WorldInfo {
+  name: string;
+  path: string;
+  backup_count: number;
+  has_backups: boolean;
+  icon_path?: string | null;
+}
+
+export interface LitematicaInfo {
+  present: boolean;
+  schematics_path: string;
 }
 
 export interface WorldSettings {
@@ -244,9 +269,32 @@ export interface LogLine {
 }
 
 export interface CrashHint {
+  code: string;
   title: string;
   detail: string;
   severity: string;
+  params?: string[];
+}
+
+export interface GameExitAnalysis {
+  instance_id: string;
+  exit_code: number | null;
+  success: boolean;
+  summary: string;
+  occurred_at: string;
+  hints: CrashHint[];
+}
+
+export interface JavaInstall {
+  path: string;
+  major: number;
+}
+
+export interface JavaStatus {
+  required_major: number;
+  detected: JavaInstall[];
+  satisfied: boolean;
+  recommended_path: string | null;
 }
 
 export interface VersionInfo {

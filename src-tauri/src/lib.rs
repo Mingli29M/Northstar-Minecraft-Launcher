@@ -197,6 +197,21 @@ fn detect_java_installs() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+fn required_java_for_game(game_version: String) -> u32 {
+    java::required_java_for_game(&game_version)
+}
+
+#[tauri::command]
+fn java_status(game_version: String) -> Result<models::JavaStatus, String> {
+    java::java_status(game_version)
+}
+
+#[tauri::command]
+fn download_temurin(major: u32) -> Result<String, String> {
+    java::download_temurin(major)
+}
+
+#[tauri::command]
 async fn prepare_instance(app: tauri::AppHandle, id: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || launch::prepare_instance(app, id))
         .await
@@ -439,13 +454,38 @@ fn export_mrpack(instance_id: String, dest_path: String) -> Result<String, Strin
 }
 
 #[tauri::command]
-fn reqguard_scan(instance_id: String) -> Result<models::ReqScanResult, String> {
-    reqguard::scan_instance(&instance_id)
+async fn reqguard_scan(instance_id: String) -> Result<models::ReqScanResult, String> {
+    let deep = paths::load_settings()?
+        .reqguard_deep_validation
+        .unwrap_or(true);
+    tauri::async_runtime::spawn_blocking(move || {
+        if deep {
+            reqguard::scan_instance_deep(&instance_id)
+        } else {
+            reqguard::scan_instance(&instance_id)
+        }
+    })
+    .await
+    .map_err(|e| format!("ReqGuard worker failed: {e}"))?
 }
 
 #[tauri::command]
-fn reqguard_resolve(instance_id: String, missing_mod_id: String) -> Result<models::ReqScanResult, String> {
-    reqguard::resolve_missing(instance_id, missing_mod_id)
+async fn reqguard_resolve(
+    instance_id: String,
+    missing_mod_id: String,
+) -> Result<models::ReqScanResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        reqguard::resolve_missing(instance_id, missing_mod_id)
+    })
+    .await
+    .map_err(|e| format!("ReqGuard worker failed: {e}"))?
+}
+
+#[tauri::command]
+async fn reqguard_resolve_all(instance_id: String) -> Result<models::ReqScanResult, String> {
+    tauri::async_runtime::spawn_blocking(move || reqguard::resolve_all_missing(instance_id))
+        .await
+        .map_err(|e| format!("ReqGuard worker failed: {e}"))?
 }
 
 #[tauri::command]
@@ -487,6 +527,44 @@ fn list_worlds(instance_id: String) -> Result<Vec<models::ContentItem>, String> 
 }
 
 #[tauri::command]
+fn list_worlds_detailed(instance_id: String) -> Result<Vec<models::WorldInfo>, String> {
+    content::list_worlds_detailed(instance_id)
+}
+
+#[tauri::command]
+fn list_world_backups(instance_id: String, world_name: String) -> Result<Vec<models::WorldBackup>, String> {
+    content::list_world_backups(instance_id, world_name)
+}
+
+#[tauri::command]
+fn create_world_backup(instance_id: String, world_name: String) -> Result<models::WorldBackup, String> {
+    content::create_world_backup(instance_id, world_name)
+}
+
+#[tauri::command]
+fn restore_world_backup(
+    instance_id: String,
+    world_name: String,
+    backup_name: String,
+) -> Result<(), String> {
+    content::restore_world_backup(instance_id, world_name, backup_name)
+}
+
+#[tauri::command]
+fn delete_world_backup(
+    instance_id: String,
+    world_name: String,
+    backup_name: String,
+) -> Result<(), String> {
+    content::delete_world_backup(instance_id, world_name, backup_name)
+}
+
+#[tauri::command]
+fn detect_litematica(instance_id: String) -> Result<models::LitematicaInfo, String> {
+    content::detect_litematica(instance_id)
+}
+
+#[tauri::command]
 fn list_screenshots(instance_id: String) -> Result<Vec<models::ContentItem>, String> {
     content::list_screenshots(instance_id)
 }
@@ -522,6 +600,13 @@ fn read_logs(instance_id: String) -> Result<Vec<models::LogLine>, String> {
 #[tauri::command]
 fn analyze_crash(instance_id: String) -> Result<Vec<models::CrashHint>, String> {
     content::analyze_crash(instance_id)
+}
+
+#[tauri::command]
+fn last_game_exit_analysis(
+    instance_id: String,
+) -> Result<Option<models::GameExitAnalysis>, String> {
+    launch::last_game_exit_analysis(instance_id)
 }
 
 #[tauri::command]
@@ -884,6 +969,9 @@ pub fn run() {
             list_game_versions_detailed,
             resolve_java,
             detect_java_installs,
+            required_java_for_game,
+            java_status,
+            download_temurin,
             prepare_instance,
             launch_instance,
             install_loader,
@@ -908,18 +996,26 @@ pub fn run() {
             export_mrpack,
             reqguard_scan,
             reqguard_resolve,
+            reqguard_resolve_all,
             list_content,
             install_content_zip,
             delete_content,
             open_content_item,
             import_save,
             list_worlds,
+            list_worlds_detailed,
+            list_world_backups,
+            create_world_backup,
+            restore_world_backup,
+            delete_world_backup,
+            detect_litematica,
             list_screenshots,
             list_datapacks,
             install_datapack,
             delete_datapack,
             read_logs,
             analyze_crash,
+            last_game_exit_analysis,
             import_foreign_instance,
             import_instance_folder,
             list_servers,

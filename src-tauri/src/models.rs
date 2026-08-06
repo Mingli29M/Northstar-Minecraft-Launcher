@@ -284,6 +284,9 @@ pub struct LauncherSettings {
     /// Max automatic backups to retain per world
     #[serde(default)]
     pub auto_backup_keep: Option<u32>,
+    /// Run network-backed Modrinth validation during UI ReqGuard scans.
+    #[serde(default)]
+    pub reqguard_deep_validation: Option<bool>,
 }
 
 impl Default for LauncherSettings {
@@ -305,6 +308,7 @@ impl Default for LauncherSettings {
             ui_panel_opacity: Some(0.92),
             auto_backup_worlds: Some(false),
             auto_backup_keep: Some(5),
+            reqguard_deep_validation: Some(true),
         }
     }
 }
@@ -359,6 +363,12 @@ pub struct ReqIssue {
     pub message: String,
     pub missing_mod_id: Option<String>,
     pub source_file: Option<String>,
+    /// `local` jar metadata or `modrinth` dependency SoT.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Modrinth project id when known (prefer for install over fuzzy search).
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -366,6 +376,10 @@ pub struct ReqScanResult {
     pub issues: Vec<ReqIssue>,
     pub mod_count: usize,
     pub scanned_at: String,
+    #[serde(default)]
+    pub deep_scan: bool,
+    #[serde(default)]
+    pub duration_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -378,6 +392,29 @@ pub struct ContentItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldBackup {
+    pub name: String,
+    pub path: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldInfo {
+    pub name: String,
+    pub path: String,
+    pub backup_count: u32,
+    pub has_backups: bool,
+    #[serde(default)]
+    pub icon_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LitematicaInfo {
+    pub present: bool,
+    pub schematics_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogLine {
     pub text: String,
     pub level: String,
@@ -385,9 +422,37 @@ pub struct LogLine {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrashHint {
+    pub code: String,
     pub title: String,
     pub detail: String,
     pub severity: String,
+    #[serde(default)]
+    pub params: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameExitAnalysis {
+    pub instance_id: String,
+    pub exit_code: Option<i32>,
+    pub success: bool,
+    pub summary: String,
+    pub occurred_at: String,
+    #[serde(default)]
+    pub hints: Vec<CrashHint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JavaInstall {
+    pub path: String,
+    pub major: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JavaStatus {
+    pub required_major: u32,
+    pub detected: Vec<JavaInstall>,
+    pub satisfied: bool,
+    pub recommended_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
