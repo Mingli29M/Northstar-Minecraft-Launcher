@@ -107,7 +107,7 @@ fn to_data_url(bytes: &[u8]) -> String {
 
 fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
-        .user_agent("NorthstarLauncher/1.1.2")
+        .user_agent("NorthstarLauncher/1.2.3")
         .timeout(Duration::from_secs(12))
         // Do not follow redirects to arbitrary hosts (SSRF).
         .redirect(reqwest::redirect::Policy::none())

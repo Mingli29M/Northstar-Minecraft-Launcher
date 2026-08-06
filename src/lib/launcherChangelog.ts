@@ -1,6 +1,6 @@
 /** Embedded launcher changelog shown in Settings → About. */
 
-export const APP_VERSION = "1.1.2";
+export const APP_VERSION = "1.2.3";
 
 export type ChangelogSection = {
   title: string;
@@ -16,6 +16,23 @@ export type ChangelogEntry = {
 };
 
 export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.2.3",
+    date: "2026-08-06",
+    summary:
+      "Security hardening: tightened asset:// file scope and avatar download SSRF controls.",
+    sections: [
+      {
+        title: "Security",
+        items: [
+          "Asset protocol scope limited to app wallpaper and avatar cache dirs (removed $HOME/** and catch-all **)",
+          "Background Browse / drag-and-drop copies images into the app wallpapers folder via import_background_image",
+          "Settings free-text background field rejects absolute filesystem paths (remote / data: URLs still allowed)",
+          "Avatar fetches: HTTPS host allowlist, no redirects, hex UUID checks, and a 2 MiB response size cap (SSRF / DoS mitigation)",
+        ],
+      },
+    ],
+  },
   {
     version: "1.1.2",
     date: "2026-08-05",

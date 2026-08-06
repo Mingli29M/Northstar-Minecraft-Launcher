@@ -4,6 +4,16 @@ Launcher release notes for the desktop app (Tauri). Website marketing changes li
 
 > **Split (1.1.1):** Launcher and website changelogs are maintained as separate files. This file covers the desktop launcher only.
 
+## 1.2.3 — 2026-08-06
+
+Security hardening for local file access and avatar downloads.
+
+### Security
+- **Asset protocol scope tightened** — `asset://` no longer allows `$HOME/**` or a catch-all `"**"`; only app wallpaper and avatar cache directories are readable
+- Background images from Browse / drag-and-drop are copied into the app wallpapers folder via `import_background_image` (keeps Appearance working inside the allow-list)
+- Settings free-text background field rejects absolute filesystem paths (remote / `data:` URLs still allowed)
+- **Avatar fetch SSRF controls** — HTTPS-only host allowlist, no HTTP redirects, hex UUID validation, and a 2 MiB response size cap so profile-supplied skin URLs cannot reach internal hosts or exhaust memory
+
 ## 1.1.2 — 2026-08-05
 
 Settings sections, license/changelog in About, panel opacity, loader icons, and shared target-version selection.

@@ -18,7 +18,7 @@ pub fn install_loader(id: String) -> Result<crate::models::Instance, String> {
 fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(45))
-        .user_agent("Northstar/1.1.2")
+        .user_agent("Northstar/1.2.3")
         .build()
         .map_err(|e| e.to_string())
 }
