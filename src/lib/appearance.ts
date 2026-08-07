@@ -1,8 +1,12 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { cacheSet } from "./cache";
+import { setSettingsSnapshot } from "./settingsStore";
 import type { LauncherSettings } from "./types";
+import { syncWindowTransparency } from "./windowTransparency";
 
 const BASE_FONT_PX = 16;
 const FONT_LINK_ID = "northstar-appearance-fonts";
+const STYLE_ID = "northstar-appearance-vars";
 
 const FONT_STACKS: Record<string, string> = {
   system:
@@ -16,7 +20,6 @@ const FONT_STACKS: Record<string, string> = {
   plex: '"IBM Plex Sans", system-ui, sans-serif',
 };
 
-/** Google Fonts CSS so font choices are visible even without local installs. */
 const FONT_STYLESHEETS: Record<string, string> = {
   "source-han-sans":
     "https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap",
@@ -28,6 +31,10 @@ const FONT_STYLESHEETS: Record<string, string> = {
   plex: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap",
 };
 
+/** Last applied fingerprint — skip no-op re-applies that used to freeze the UI. */
+let lastFingerprint = "";
+let lastBgKey = "";
+
 function ensureFontStylesheet(fontKey: string) {
   const href = FONT_STYLESHEETS[fontKey];
   const existing = document.getElementById(FONT_LINK_ID) as HTMLLinkElement | null;
@@ -36,7 +43,7 @@ function ensureFontStylesheet(fontKey: string) {
     return;
   }
   if (existing) {
-    if (existing.href !== href) existing.href = href;
+    if (existing.getAttribute("href") !== href) existing.href = href;
     return;
   }
   const link = document.createElement("link");
@@ -63,8 +70,6 @@ function resolveBackgroundImage(raw: string | null | undefined): string | null {
   ) {
     return cssUrl(value);
   }
-  // Local files must live under the app wallpapers dir (asset protocol scope).
-  // convertFileSrc fails closed when the path is outside the allow-list.
   try {
     return cssUrl(convertFileSrc(value));
   } catch {
@@ -72,69 +77,120 @@ function resolveBackgroundImage(raw: string | null | undefined): string | null {
   }
 }
 
-function setVar(el: HTMLElement, name: string, value: string | null) {
-  if (value == null || value === "") {
-    el.style.removeProperty(name);
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = hex.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!m) return null;
+  let h = m[1];
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const n = parseInt(h, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function rgba(hex: string, alpha: number, fallback: string): string {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return fallback;
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
+
+function setBg(
+  el: HTMLElement,
+  bg: string | null,
+  image: string | null,
+  opts?: { paintImage?: boolean },
+) {
+  const paintImage = opts?.paintImage ?? true;
+  if (bg) {
+    el.style.setProperty("background-color", bg, "important");
+  } else if (image) {
+    el.style.setProperty("background-color", "transparent", "important");
   } else {
-    // Important so we win over Astryx/theme-neutral token sheets.
-    el.style.setProperty(name, value, "important");
+    el.style.removeProperty("background-color");
+  }
+  if (image && paintImage) {
+    // Optional color becomes a translucent wash layered above the wallpaper.
+    const layered =
+      bg && bg !== "transparent"
+        ? `linear-gradient(${bg}, ${bg}), ${image}`
+        : image;
+    el.style.setProperty("background-image", layered, "important");
+    el.style.setProperty("background-size", "cover", "important");
+    el.style.setProperty("background-position", "center", "important");
+    el.style.setProperty("background-attachment", "fixed", "important");
+    el.style.setProperty("background-repeat", "no-repeat", "important");
+    // Color is in the gradient layer; keep the fill clear so it does not mask the image.
+    el.style.setProperty("background-color", "transparent", "important");
+  } else {
+    el.style.removeProperty("background-image");
+    el.style.removeProperty("background-size");
+    el.style.removeProperty("background-position");
+    el.style.removeProperty("background-attachment");
+    el.style.removeProperty("background-repeat");
   }
 }
 
-/**
- * Astryx defines tokens on `[data-astryx-theme]` / `.xj0fimd` / `.x5tdzeq`,
- * not only on `:root`. Vars set only on documentElement never reach Cards/Text.
- */
-function themeRoots(): HTMLElement[] {
-  const roots: HTMLElement[] = [document.documentElement];
-  const appRoot = document.getElementById("root");
-  if (appRoot) roots.push(appRoot);
-  document
-    .querySelectorAll<HTMLElement>("[data-astryx-theme], .xj0fimd, .x5tdzeq")
-    .forEach((el) => {
-      if (!roots.includes(el)) roots.push(el);
-    });
-  return roots;
-}
+/** Paint only the shell surfaces — keep the list tiny to avoid style thrash. */
+function paintShellBackground(
+  bg: string | null,
+  image: string | null,
+  wallpaperTint: string | null,
+) {
+  const key = `${bg ?? ""}|${image ?? ""}|${wallpaperTint ?? ""}`;
+  if (key === lastBgKey) return;
+  lastBgKey = key;
 
-function paintShellBackground(bg: string | null, image: string | null) {
-  const targets: HTMLElement[] = [document.body];
-  const appRoot = document.getElementById("root");
-  if (appRoot) targets.push(appRoot);
-  const shellMain = document.getElementById("astryx-app-shell-main");
-  if (shellMain) targets.push(shellMain);
-  if (shellMain?.parentElement) targets.push(shellMain.parentElement);
-  document
-    .querySelectorAll<HTMLElement>("[data-astryx-theme], #astryx-app-shell-nav, #astryx-app-shell-aside")
-    .forEach((el) => {
-      if (!targets.includes(el)) targets.push(el);
-    });
+  // Frosted panels need a clear shell over the translucent window backplate.
+  document.documentElement.classList.add("euml-frosted-ui");
+  document.documentElement.classList.toggle("euml-has-wallpaper", Boolean(image));
+  document.documentElement.classList.toggle("euml-has-color-wash", Boolean(bg) && !image);
 
-  for (const el of targets) {
-    if (bg) {
-      el.style.setProperty("background-color", bg, "important");
-    } else if (image) {
-      el.style.setProperty("background-color", "transparent", "important");
-    } else {
-      el.style.removeProperty("background-color");
-    }
-    if (image) {
-      el.style.setProperty("background-image", image, "important");
-      el.style.setProperty("background-size", "cover", "important");
-      el.style.setProperty("background-position", "center", "important");
-      el.style.setProperty("background-attachment", "fixed", "important");
-      el.style.setProperty("background-repeat", "no-repeat", "important");
-    } else {
-      el.style.removeProperty("background-image");
-      el.style.removeProperty("background-size");
-      el.style.removeProperty("background-position");
-      el.style.removeProperty("background-attachment");
-      el.style.removeProperty("background-repeat");
-    }
+  // Base fill / wallpaper on body/#root only. Chrome stays clear so panel opacity shows.
+  const layered = [document.body, document.getElementById("root")].filter(
+    (el): el is HTMLElement => Boolean(el),
+  );
+  for (const el of layered) {
+    // `bg` is already opacity-applied (color wash) from applyAppearance.
+    setBg(el, image ? wallpaperTint : bg, image, { paintImage: true });
+  }
+
+  const chrome: HTMLElement[] = [];
+  for (const id of ["astryx-app-shell-main", "astryx-app-shell-nav", "astryx-app-shell-aside"]) {
+    const el = document.getElementById(id);
+    if (el) chrome.push(el);
+  }
+  const theme = document.querySelector<HTMLElement>("[data-astryx-theme]");
+  if (theme) chrome.push(theme);
+
+  for (const el of chrome) {
+    setBg(el, null, null, { paintImage: false });
   }
 }
 
-/** Apply appearance settings as CSS variables on all Astryx theme roots. */
+function syncAppearanceStylesheet(vars: Record<string, string>, fontStack: string) {
+  let el = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
+  if (!el) {
+    el = document.createElement("style");
+    el.id = STYLE_ID;
+    document.head.appendChild(el);
+  }
+  const decls = Object.entries(vars)
+    .map(([k, v]) => `  ${k}: ${v};`)
+    .join("\n");
+  const next = `
+/* Northstar appearance — unlayered so it beats @layer astryx-theme */
+:root,
+html[data-astryx-theme],
+[data-astryx-theme] {
+${decls}
+  font-family: ${fontStack};
+}
+html, body, #root {
+  font-family: ${fontStack};
+}
+`.trim();
+  if (el.textContent !== next) el.textContent = next;
+}
+
+/** Apply appearance settings as CSS variables that actually reach Astryx. */
 export function applyAppearance(
   settings: Pick<
     LauncherSettings,
@@ -148,54 +204,96 @@ export function applyAppearance(
 ) {
   const accent = settings?.accent?.trim() || "#1370f0";
   const bg = settings?.background_color?.trim() || null;
-  const image = resolveBackgroundImage(settings?.background_image);
+  const imageRaw = settings?.background_image?.trim() || null;
   const fontKey = settings?.font_family?.trim() || "source-han-sans";
-  const stack = FONT_STACKS[fontKey] ?? FONT_STACKS["source-han-sans"];
   const scale = settings?.ui_scale ?? 1;
   const clamped = [0.9, 1, 1.1, 1.25].includes(scale) ? scale : 1;
   const opacityRaw = settings?.ui_panel_opacity ?? 0.92;
-  const opacity = Math.min(1, Math.max(0.55, Number(opacityRaw) || 0.92));
+  const opacity = Math.min(1, Math.max(0.2, Number(opacityRaw) || 0.92));
+
+  const fingerprint = [
+    accent,
+    bg ?? "",
+    imageRaw ?? "",
+    fontKey,
+    String(clamped),
+    String(opacity),
+  ].join("\0");
+  if (fingerprint === lastFingerprint) return;
+  lastFingerprint = fingerprint;
+
+  const image = resolveBackgroundImage(imageRaw);
+  const hasWallpaper = Boolean(image);
+  const stack = FONT_STACKS[fontKey] ?? FONT_STACKS["source-han-sans"];
   const opacityPct = `${Math.round(opacity * 100)}%`;
-  // Opaque card colors with alpha so wallpaper shows through every Astryx Card.
-  const cardLight = `rgba(255, 255, 255, ${opacity})`;
-  const cardDark = `rgba(27, 27, 27, ${opacity})`;
-  const card = `light-dark(${cardLight}, ${cardDark})`;
+  // Only the window backplate is translucent. Cards / lists / menus stay solid
+  // so selectors and rows remain readable over the desktop wash.
+  const card = "#ffffff";
+  const accentMuted = rgba(accent, 0.18, `${accent}33`);
+  const baseHex = bg || "#f5f5f4";
+  const windowWash = rgba(baseHex, opacity, `rgba(245,245,244,${opacity})`);
+  const wallpaperTint = bg ? rgba(bg, opacity, "transparent") : "transparent";
+  const mutedSolid = "#f5f5f4";
 
   ensureFontStylesheet(fontKey);
 
-  for (const root of themeRoots()) {
-    setVar(root, "--color-accent", accent);
-    setVar(root, "--color-text-accent", accent);
-    setVar(root, "--color-icon-accent", accent);
-    setVar(root, "--color-border-blue", accent);
-    setVar(root, "--color-icon-blue", accent);
-    setVar(root, "--font-family-body", stack);
-    setVar(root, "--font-family-heading", stack);
-    setVar(root, "--euml-panel-opacity", String(opacity));
-    setVar(root, "--euml-panel-opacity-pct", opacityPct);
-    setVar(root, "--color-background-card", card);
-    setVar(root, "--color-background-popover", card);
-    setVar(root, "--color-background-surface", card);
+  const vars: Record<string, string> = {
+    "--color-accent": accent,
+    "--color-text-accent": accent,
+    "--color-icon-accent": accent,
+    "--color-border-blue": accent,
+    "--color-icon-blue": accent,
+    "--color-text-blue": accent,
+    "--color-accent-muted": accentMuted,
+    "--color-on-accent": "#ffffff",
+    "--font-family-body": stack,
+    "--font-family-heading": stack,
+    "--euml-panel-opacity": String(opacity),
+    "--euml-panel-opacity-pct": opacityPct,
+    "--color-background-card": card,
+    "--color-background-popover": card,
+    // Shell stays clear; the window wash / wallpaper is the visible base.
+    "--color-background-surface": "transparent",
+    "--color-background-muted": mutedSolid,
+    "--color-background-secondary": mutedSolid,
+    "--color-background-selected": "#e7e5e4",
+    "--color-background-body": hasWallpaper ? wallpaperTint : windowWash,
+    "--euml-bg-underlay": "transparent",
+    // Aliases for older CSS that used non-Astryx token names.
+    "--color-background-elevated": card,
+    "--color-foreground": "var(--color-text-primary, #1c1917)",
+    "--color-foreground-secondary": "var(--color-text-secondary, #78716c)",
+    "--color-border": "var(--color-border-primary, #d6d3d1)",
+  };
 
-    if (bg) {
-      setVar(root, "--color-background-body", bg);
-    } else {
-      setVar(root, "--color-background-body", null);
-    }
+  document.documentElement.classList.toggle("euml-window-translucent", opacity < 0.98);
 
-    root.style.setProperty("font-family", stack, "important");
-  }
-
-  document.body.style.setProperty("font-family", stack, "important");
+  syncAppearanceStylesheet(vars, stack);
   document.documentElement.style.fontSize = `${BASE_FONT_PX * clamped}px`;
-  paintShellBackground(bg, image);
+  paintShellBackground(
+    hasWallpaper ? null : windowWash,
+    image,
+    hasWallpaper ? wallpaperTint : null,
+  );
+  void syncWindowTransparency(opacity);
 }
 
 export const APPEARANCE_EVENT = "northstar:appearance";
+export const SETTINGS_EVENT = "northstar:settings";
 
 export function notifyAppearance(
   settings: Parameters<typeof applyAppearance>[0],
 ) {
   applyAppearance(settings);
   window.dispatchEvent(new CustomEvent(APPEARANCE_EVENT, { detail: settings }));
+}
+
+/** Broadcast full settings so keep-alive pages (Launch) can refresh layout opts. */
+export function notifySettings(settings: LauncherSettings) {
+  // Keep the API cache + live snapshot ahead of disk autosave so other pages
+  // (rememberPreferredInstance, Launch reload) cannot clobber pending changes.
+  setSettingsSnapshot(settings);
+  cacheSet("settings", settings);
+  notifyAppearance(settings);
+  window.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { detail: settings }));
 }

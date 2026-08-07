@@ -1,6 +1,6 @@
 /** Embedded launcher changelog shown in Settings → About. */
 
-export const APP_VERSION = "1.2.3";
+export const APP_VERSION = "1.3.0";
 
 export type ChangelogSection = {
   title: string;
@@ -16,6 +16,112 @@ export type ChangelogEntry = {
 };
 
 export const LAUNCHER_CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.3.0",
+    date: "2026-08-07",
+    summary:
+      "Translucent window over the desktop, reliable Start position, Modrinth install/detail upgrades, and a Litematica tab.",
+    sections: [
+      {
+        title: "Appearance",
+        items: [
+          "Window opacity uses real OS translucency so the desktop wallpaper can show through",
+          "Cards, lists, and menus stay solid for readability; only the window wash fades",
+          "Opacity range widened to 20–100%",
+        ],
+      },
+      {
+        title: "Launch",
+        items: [
+          "Fix Start button position not applying — Top/Bottom controls work in compact and full layouts",
+          "Compact mode no longer locks or forces Start position",
+        ],
+      },
+      {
+        title: "Mods",
+        items: [
+          "Modrinth install version picker with prerequisites, nested dependency install, and Installed badge",
+          "Detail page Markdown, gallery lightbox, and fuller versions list",
+          "Mod installs report download progress in the dock",
+        ],
+      },
+      {
+        title: "Versions",
+        items: [
+          "Litematica tab to import, export, delete, and open schematics",
+          "Worlds and schematics use separate list state",
+        ],
+      },
+      {
+        title: "Worlds",
+        items: [
+          "Chunkbase seed map opens in the system browser (iframe / in-app window not viable)",
+        ],
+      },
+    ],
+  },
+  {
+    version: "1.2.4",
+    date: "2026-08-06",
+    summary:
+      "Host panel reliability, Terracotta multiplayer, visible download progress, and a safe-exit prompt.",
+    sections: [
+      {
+        title: "Host",
+        items: [
+          "Windows CREATE_NO_WINDOW on helper tools and server Java so Start no longer opens many terminals",
+          "Defer public-IP / UPnP discovery so Host opens without a long freeze",
+          "Keep status polling when Stopped; recover live servers via port + orphan scan",
+          "Standout Running / Stopped badge with optional PID",
+        ],
+      },
+      {
+        title: "Terracotta",
+        items: [
+          "New Terracotta tab downloads and runs the official unmodified 0.4.2 sidecar (HMCL HTTP IPC)",
+          "Host / join room codes without Cargo-linking Terracotta; Northstar license unchanged",
+          "Fix 'Access is denied (os error 5)' on Reinstall — the install folder is no longer locked as the sidecar's working directory",
+          "Fix false 'errored' status — state polls retry before being treated as a failure",
+          "Downloads are SHA-512 verified across four mirrors, so a truncated archive is replaced instead of cached",
+          "Readable connection states and explained Terracotta errors instead of raw state names",
+          "Fix Start never sticking — on Windows --hmcl only re-spawns the binary detached and exits, so the launcher was watching the wrong process and declared the sidecar dead seconds after it started",
+          "Fix sidecars surviving Stop and quit, which left one holding Terracotta's machine-wide lock and a file lock on the executable (the real cause of repeat 'os error 5' reinstalls)",
+          "Start now attaches to a sidecar that is already running, and the launcher re-attaches to one its own previous session left behind",
+          "A failed start prints the tail of Terracotta's own log, which is otherwise written only to a file",
+          "Visible AGPL attribution in the tab and Settings → About",
+        ],
+      },
+      {
+        title: "Launch",
+        items: [
+          "Fix a newly downloaded or imported instance not showing up in the start menu until restart",
+          "Compact Launch page and Start button position moved to Settings → Appearance; compact docks Start at the bottom",
+          "Reject pack names like Create：Complete as Minecraft versions; prepare asks you to set a real version instead",
+          "With local metadata scan off, jars are no longer unzipped; with both scans off, Launch skips ReqGuard work",
+        ],
+      },
+      {
+        title: "Downloads",
+        items: [
+          "Large single-file downloads (Terracotta, Java, server jars, plugins) now report progress instead of running silently",
+          "Progress dock shows transferred size and speed for single-file transfers",
+        ],
+      },
+      {
+        title: "Reliability",
+        items: [
+          "Closing the launcher while a server or Terracotta runs now asks first and names what would stop",
+        ],
+      },
+      {
+        title: "Localization",
+        items: [
+          "Removed Chinese text that leaked into the English and German UI",
+          "Offline-account validation error is localized instead of hard-coded Chinese",
+        ],
+      },
+    ],
+  },
   {
     version: "1.2.3",
     date: "2026-08-06",

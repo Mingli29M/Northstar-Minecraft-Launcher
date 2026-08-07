@@ -313,7 +313,7 @@ pub fn active_account() -> Result<Option<Account>, String> {
 pub fn add_offline_account(username: String) -> Result<Vec<Account>, String> {
     let name = username.trim();
     if name.is_empty() {
-        return Err("用户名不能为空".into());
+        return Err("Username cannot be empty".into());
     }
     let mut hasher = Sha1::new();
     hasher.update(format!("OfflinePlayer:{name}").as_bytes());

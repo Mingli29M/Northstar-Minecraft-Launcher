@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@astryxdesign/core/Button";
 import { DismissibleBanner } from "../components/DismissibleBanner";
 import { Card } from "@astryxdesign/core/Card";
@@ -18,6 +18,7 @@ import type { Instance, ServerEntry } from "../lib/types";
 
 export function ServersPage() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const { isFavorite } = useFavorites();
   const [instances, setInstances] = useState<Instance[]>([]);
   const [instanceId, setInstanceId] = useState("");
@@ -222,7 +223,7 @@ export function ServersPage() {
           <Button
             label={t("openTerracotta")}
             variant="secondary"
-            onClick={() => openUrl("https://github.com/burningtnt/Terracotta/releases")}
+            onClick={() => navigate("/terracotta")}
           />
         </VStack>
       </Card>

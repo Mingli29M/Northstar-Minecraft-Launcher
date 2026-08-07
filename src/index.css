@@ -20,27 +20,50 @@ body,
   --euml-panel-opacity-pct: 92%;
 }
 
+/* Transparent window: html stays clear so the desktop / acrylic can show through. */
+html {
+  background: transparent !important;
+}
+
 body,
 #root {
   background: var(--color-background-body, #f5f5f4);
   color: var(--color-text-primary, #1c1917);
 }
 
-/* Let wallpaper show through the shell when a background image/color is set. */
-#astryx-app-shell-main,
-#astryx-app-shell-nav,
-#astryx-app-shell-aside {
+html.euml-window-translucent body,
+html.euml-window-translucent #root {
+  background-color: var(--color-background-body) !important;
+}
+
+/* Clear shell fills so the window wash / desktop shows between cards. */
+html.euml-frosted-ui #astryx-app-shell-main,
+html.euml-frosted-ui #astryx-app-shell-nav,
+html.euml-frosted-ui #astryx-app-shell-aside,
+html.euml-frosted-ui [data-astryx-theme],
+html.euml-frosted-ui .astryx-app-shell {
   background-color: transparent !important;
+  background-image: none !important;
 }
 
 /*
- * Card surfaces use --color-background-card (set with alpha in appearance.ts).
- * Soft blur so wallpaper remains readable under translucent panels.
+ * Cards / lists stay opaque for readability. Only the window wash (body) is
+ * translucent so the desktop can show through between panels.
  */
 .euml-panel,
+.astryx-card,
 .x1de1mus {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background-color: #ffffff !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.euml-list-row:hover {
+  background: #f5f5f4 !important;
+}
+
+.euml-list-row.is-selected {
+  background: #e7e5e4 !important;
 }
 
 .euml-bg-dropzone {
@@ -177,6 +200,51 @@ body,
 .euml-loader-badge[data-loader="forge"] { background: #6a7a8a; }
 .euml-loader-badge[data-loader="neoforge"] { background: #e86339; }
 .euml-loader-badge[data-loader="vanilla"] { background: #5b8c5a; }
+
+.euml-host-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  text-transform: uppercase;
+}
+
+.euml-host-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.euml-host-status.is-running {
+  color: #0b3d1f;
+  background: #b7f0c8;
+  border-color: #3fbf6a;
+}
+
+.euml-host-status.is-running .euml-host-status__dot {
+  box-shadow: 0 0 0 0 rgba(34, 160, 80, 0.65);
+  animation: euml-host-pulse 1.6s ease-out infinite;
+}
+
+.euml-host-status.is-stopped {
+  color: #4b5563;
+  background: #e5e7eb;
+  border-color: #cbd5e1;
+}
+
+@keyframes euml-host-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(34, 160, 80, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(34, 160, 80, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 160, 80, 0); }
+}
 
 .euml-tags {
   display: flex;
@@ -322,17 +390,32 @@ body,
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 40;
+  /* Above modals (80) so install progress stays visible while a picker is open. */
+  z-index: 90;
   pointer-events: none;
+}
+
+.euml-install-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  background: var(--color-background-muted, #f1f1f1);
 }
 
 .euml-download-bar,
 .euml-console {
   pointer-events: auto;
-  background: var(--color-background-elevated, #fff);
-  border-top: 1px solid var(--color-border, #e7e5e4);
+  /* Match .euml-panel — appearance.ts sets --color-background-card with opacity. */
+  background: var(--color-background-card, #fff);
+  border-top: 1px solid var(--color-border-primary, #d6d3d1);
   padding: 10px 16px;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.06);
+  color: var(--color-text-primary, #1c1917);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .euml-progress-track {
@@ -347,6 +430,36 @@ body,
   height: 100%;
   background: var(--color-accent, #1370f0);
   transition: width 160ms ease;
+}
+
+.euml-exit-guard {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.euml-exit-guard__panel {
+  width: min(520px, 100%);
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--color-background-card, #fff);
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.euml-exit-guard__list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .euml-console {
@@ -371,13 +484,14 @@ body,
 
 .euml-console-window {
   height: 100vh;
-  background: var(--color-background, #fafaf9);
-  color: var(--color-foreground, #1c1917);
+  background: var(--color-background-body, #f5f5f4);
+  color: var(--color-text-primary, #1c1917);
 }
 
 .euml-console-window__head {
   padding: 10px 16px;
-  border-bottom: 1px solid var(--color-border, #e7e5e4);
+  border-bottom: 1px solid var(--color-border-primary, #d6d3d1);
+  color: var(--color-text-primary, #1c1917);
 }
 
 .euml-console-filters {
@@ -387,9 +501,9 @@ body,
 }
 
 .euml-console-chip {
-  border: 1px solid var(--color-border, #e7e5e4);
+  border: 1px solid var(--color-border-primary, #d6d3d1);
   background: transparent;
-  color: inherit;
+  color: var(--color-text-secondary, #78716c);
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 6px;
@@ -411,26 +525,39 @@ body,
   line-height: 1.45;
   white-space: pre-wrap;
   max-height: 180px;
+  color: var(--color-text-primary, #1c1917);
+  background: transparent;
 }
 
 .euml-console-line {
   margin: 0;
+  color: var(--color-text-primary, #1c1917);
 }
 
 .euml-console-ts {
   opacity: 0.55;
+  color: var(--color-text-secondary, #78716c);
 }
 
+/* Readable on both light and dark theme surfaces */
 .euml-console-line--error {
-  color: #b91c1c;
+  color: #dc2626;
 }
 
 .euml-console-line--warn {
-  color: #b45309;
+  color: #d97706;
 }
 
 .euml-console-line--progress {
-  color: #1d4ed8;
+  color: #2563eb;
+}
+
+.euml-console-line--game {
+  color: #16a34a;
+}
+
+.euml-console-line--server {
+  color: #7c3aed;
 }
 
 .euml-fav-btn {
@@ -441,7 +568,7 @@ body,
   height: 32px;
   border: none;
   background: transparent;
-  color: var(--color-foreground-secondary, #78716c);
+  color: var(--color-text-secondary, #78716c);
   border-radius: 8px;
   cursor: pointer;
   flex-shrink: 0;
@@ -489,7 +616,7 @@ body,
 
 .euml-config-section {
   padding: 10px 0 4px;
-  border-top: 1px solid var(--color-border, #e7e5e4);
+  border-top: 1px solid var(--color-border-primary, #d6d3d1);
 }
 
 .euml-config-section:first-of-type {
@@ -505,11 +632,27 @@ body,
 .euml-launch-hero {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--color-accent, #1370f0) 8%, transparent), transparent 55%),
-    var(--color-background-elevated, #fff);
+    var(--color-background-card, #fff);
 }
 
-.euml-start-btn {
+.euml-launch-actions {
+  display: flex;
+  gap: 10px;
   width: 100%;
+  align-items: stretch;
+}
+
+/* Start under the version list (Settings → bottom position). */
+.euml-launch-actions-dock {
+  flex-shrink: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.euml-start-btn,
+.euml-stop-btn {
   height: 56px;
   border: none;
   border-radius: 10px;
@@ -518,12 +661,24 @@ body,
   letter-spacing: 0.04em;
   cursor: pointer;
   color: #fff;
-  background: linear-gradient(180deg, #3d9a45 0%, #2f7a36 100%);
-  box-shadow: 0 2px 0 #245c2a;
   transition: filter 120ms ease, transform 80ms ease;
 }
 
-.euml-start-btn:hover:not(:disabled) {
+.euml-start-btn {
+  flex: 1;
+  min-width: 0;
+  background: linear-gradient(180deg, #3d9a45 0%, #2f7a36 100%);
+  box-shadow: 0 2px 0 #245c2a;
+}
+
+.euml-stop-btn {
+  flex: 0 0 7.5rem;
+  background: linear-gradient(180deg, #c44a4a 0%, #9e3434 100%);
+  box-shadow: 0 2px 0 #6e2424;
+}
+
+.euml-start-btn:hover:not(:disabled),
+.euml-stop-btn:hover:not(:disabled) {
   filter: brightness(1.06);
 }
 
@@ -532,8 +687,307 @@ body,
   box-shadow: 0 1px 0 #245c2a;
 }
 
-.euml-start-btn:disabled {
+.euml-stop-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 #6e2424;
+}
+
+.euml-start-btn:disabled,
+.euml-stop-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.euml-chunkbase {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-primary, #d6d3d1);
+}
+
+.euml-chunkbase-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  background: var(--color-background-muted, #f1f1f1);
+}
+
+.euml-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  margin: 0;
+  background: color-mix(in srgb, #0f172a 38%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  /* Keep the dialog centered in the viewport; content scrolls inside .euml-modal. */
+  overflow: hidden;
+}
+
+.euml-modal {
+  width: min(560px, 100%);
+  max-height: min(86vh, 820px);
+  overflow: auto;
+  position: relative;
+  border-radius: 14px;
+  background: var(--color-background-card, rgba(255, 255, 255, 0.88));
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  border: 1px solid color-mix(in srgb, var(--color-border-primary, #d6d3d1) 70%, transparent);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+}
+
+/* Nested Card should not double-paint an opaque fill over the frosted modal. */
+.euml-modal > .astryx-card {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.euml-prereq-link {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: var(--color-accent, #1370f0);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.euml-prereq-link:hover {
+  opacity: 0.85;
+}
+
+.euml-prereq-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.euml-prereq-link--inline {
+  display: inline;
+  width: auto;
+}
+
+.euml-version-deps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 2px;
+  font-size: 13px;
+  color: var(--color-text-secondary, #57534e);
+}
+
+.euml-version-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.euml-version-row {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  background: var(--color-background-card, #fff);
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.euml-version-row--active {
+  border-color: var(--color-accent, #1370f0);
+  box-shadow: inset 0 0 0 1px var(--color-accent, #1370f0);
+}
+
+.euml-version-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  color: var(--color-text-secondary, #57534e);
+}
+
+.euml-version-badge--installed {
+  border-color: color-mix(in srgb, #16a34a 50%, var(--color-border-primary, #d6d3d1));
+  color: #15803d;
+  background: color-mix(in srgb, #16a34a 12%, transparent);
+}
+
+.euml-prereq-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  background: var(--color-background-muted, #f1f1f1);
+}
+
+.euml-gallery {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(180px, 42%);
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.euml-gallery-item {
+  display: block;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+}
+
+.euml-gallery-item img {
+  display: block;
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+}
+
+.euml-gallery-lightbox {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  margin: 0;
+  background: color-mix(in srgb, #000 72%, transparent);
+  cursor: zoom-out;
+  overflow: hidden;
+}
+
+.euml-gallery-lightbox img {
+  max-width: min(960px, 100%);
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.euml-md {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text-primary, #1c1917);
+}
+
+.euml-md > :first-child {
+  margin-top: 0;
+}
+
+.euml-md > :last-child {
+  margin-bottom: 0;
+}
+
+.euml-md h1,
+.euml-md h2,
+.euml-md h3,
+.euml-md h4 {
+  margin: 1.1em 0 0.45em;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+.euml-md h1 { font-size: 1.45em; }
+.euml-md h2 { font-size: 1.25em; }
+.euml-md h3 { font-size: 1.1em; }
+
+.euml-md p,
+.euml-md ul,
+.euml-md ol,
+.euml-md pre,
+.euml-md blockquote,
+.euml-md table {
+  margin: 0.65em 0;
+}
+
+.euml-md a {
+  color: var(--color-accent, #1370f0);
+  text-decoration: underline;
+}
+
+.euml-md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-background-muted, #f1f1f1) 85%, #000 4%);
+}
+
+.euml-md pre {
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  background: var(--color-background-muted, #f1f1f1);
+}
+
+.euml-md pre code {
+  padding: 0;
+  background: none;
+}
+
+.euml-md img,
+.euml-md-img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.euml-md blockquote {
+  margin-left: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--color-border-primary, #d6d3d1);
+  color: var(--color-text-secondary, #57534e);
+}
+
+.euml-md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.euml-md th,
+.euml-md td {
+  border: 1px solid var(--color-border-primary, #d6d3d1);
+  padding: 6px 8px;
+  text-align: left;
 }
 

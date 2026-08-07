@@ -1,5 +1,5 @@
 import type { DragEvent, FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@astryxdesign/core/Button";
@@ -11,7 +11,7 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { VStack } from "@astryxdesign/core/VStack";
 import { HStack } from "@astryxdesign/core/HStack";
 import { api } from "../lib/api";
-import { notifyAppearance } from "../lib/appearance";
+import { notifySettings } from "../lib/appearance";
 import { APP_VERSION, LAUNCHER_CHANGELOG } from "../lib/launcherChangelog";
 import { useI18n } from "../i18n";
 import type { LauncherSettings, Locale } from "../lib/types";
@@ -85,8 +85,36 @@ function patchSettings(
   patch: Partial<LauncherSettings>,
 ): LauncherSettings {
   const next = { ...current, ...patch };
-  notifyAppearance(next);
+  // Live-preview visuals + push layout flags (compact / Start position) to Launch.
+  notifySettings(next);
   return next;
+}
+
+/** Persist appearance/layout tweaks without requiring a separate Save click. */
+function useAutosaveSettings(settings: LauncherSettings | null) {
+  const timer = useRef<number | null>(null);
+  const skip = useRef(true);
+  useEffect(() => {
+    if (!settings) return;
+    // Skip the initial load so we don't rewrite the file on mount.
+    if (skip.current) {
+      skip.current = false;
+      return;
+    }
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      const threads = Math.min(64, Math.max(4, settings.download_threads || 16));
+      const opacity = Math.min(1, Math.max(0.2, settings.ui_panel_opacity ?? 0.92));
+      // Persist quietly — UI already got notifySettings from patchSettings.
+      // Re-broadcasting here caused Launch to re-render on every keystroke save.
+      void api
+        .saveSettings({ ...settings, download_threads: threads, ui_panel_opacity: opacity })
+        .catch(() => undefined);
+    }, 500);
+    return () => {
+      if (timer.current) window.clearTimeout(timer.current);
+    };
+  }, [settings]);
 }
 
 function SectionNav({
@@ -128,10 +156,12 @@ export function SettingsPage() {
   useEffect(() => {
     api.getSettings().then((s) => {
       setSettings(s);
-      notifyAppearance(s);
+      notifySettings(s);
     });
     api.detectJavaInstalls().then(setJavas).catch(() => setJavas([]));
   }, []);
+
+  useAutosaveSettings(settings);
 
   function setBackgroundImage(value: string | null) {
     if (!settings) return;
@@ -170,7 +200,7 @@ export function SettingsPage() {
     e.preventDefault();
     if (!settings) return;
     const threads = Math.min(64, Math.max(4, settings.download_threads || 16));
-    const opacity = Math.min(1, Math.max(0.55, settings.ui_panel_opacity ?? 0.92));
+    const opacity = Math.min(1, Math.max(0.2, settings.ui_panel_opacity ?? 0.92));
     const saved = await api.saveSettings({
       ...settings,
       download_threads: threads,
@@ -178,8 +208,21 @@ export function SettingsPage() {
       locale,
     });
     setSettings(saved);
-    notifyAppearance(saved);
+    notifySettings(saved);
     setMsg(t("saved"));
+  }
+
+  async function onResetSettings() {
+    if (!window.confirm(t("resetSettingsConfirm"))) return;
+    try {
+      const saved = await api.resetSettings();
+      setSettings(saved);
+      notifySettings(saved);
+      if (saved.locale) setLocale(saved.locale as Locale);
+      setMsg(t("resetSettingsDone"));
+    } catch (e) {
+      setMsg(String(e));
+    }
   }
 
   if (!settings) return <Text color="secondary">{t("loading")}</Text>;
@@ -276,6 +319,18 @@ export function SettingsPage() {
                 onChange={(v) => setSettings({ ...settings, curseforge_api_key: v || null })}
               />
               <Button type="submit" label={t("save")} variant="primary" />
+              <VStack gap={2} style={{ marginTop: 8 }}>
+                <Text weight="semibold">{t("resetSettingsTitle")}</Text>
+                <Text color="secondary" type="supporting">
+                  {t("resetSettingsHint")}
+                </Text>
+                <Button
+                  type="button"
+                  label={t("resetSettings")}
+                  variant="destructive"
+                  onClick={() => void onResetSettings()}
+                />
+              </VStack>
             </VStack>
           </form>
         </Card>
@@ -445,6 +500,62 @@ export function SettingsPage() {
                   { value: "1.25", label: "125%" },
                 ]}
               />
+              <Selector
+                label={t("launchCompactMode")}
+                description={t("launchCompactModeHint")}
+                value={settings.launch_only_selected ? "on" : "off"}
+                onChange={(v) => {
+                  const next = patchSettings(settings, { launch_only_selected: v === "on" });
+                  setSettings(next);
+                  void api.saveSettings(next).catch(() => undefined);
+                }}
+                options={[
+                  { value: "off", label: t("launchCompactOff") },
+                  { value: "on", label: t("launchCompactOn") },
+                ]}
+              />
+              <VStack gap={1}>
+                <Text type="supporting" weight="semibold">
+                  {t("launchStartPosition")}
+                </Text>
+                <Text color="secondary" type="supporting">
+                  {t("launchStartPositionHint")}
+                </Text>
+                <HStack gap={2} style={{ flexWrap: "wrap" }}>
+                  <Button
+                    type="button"
+                    label={t("launchStartTop")}
+                    variant={
+                      (settings.launch_start_position ?? "top") === "top"
+                        ? "primary"
+                        : "secondary"
+                    }
+                    onClick={() => {
+                      const next = patchSettings(settings, {
+                        launch_start_position: "top",
+                      });
+                      setSettings(next);
+                      void api.saveSettings(next).catch(() => undefined);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    label={t("launchStartBottom")}
+                    variant={
+                      settings.launch_start_position === "bottom"
+                        ? "primary"
+                        : "secondary"
+                    }
+                    onClick={() => {
+                      const next = patchSettings(settings, {
+                        launch_start_position: "bottom",
+                      });
+                      setSettings(next);
+                      void api.saveSettings(next).catch(() => undefined);
+                    }}
+                  />
+                </HStack>
+              </VStack>
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <Text type="supporting" weight="semibold">
                   {t("panelOpacity")} ({Math.round((settings.ui_panel_opacity ?? 0.92) * 100)}%)
@@ -454,7 +565,7 @@ export function SettingsPage() {
                 </Text>
                 <input
                   type="range"
-                  min={55}
+                  min={20}
                   max={100}
                   step={1}
                   value={Math.round((settings.ui_panel_opacity ?? 0.92) * 100)}
@@ -585,6 +696,11 @@ export function SettingsPage() {
                 onClick={() => {
                   window.open(LICENSE_URL, "_blank", "noopener,noreferrer");
                 }}
+              />
+              <Banner
+                status="info"
+                title={t("terracottaThirdPartyTitle")}
+                description={t("terracottaThirdPartyBody")}
               />
             </VStack>
           </Card>

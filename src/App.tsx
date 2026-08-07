@@ -6,6 +6,7 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { useI18n } from "./i18n";
 import { AppNav } from "./components/AppNav";
 import { DownloadStatusBar } from "./components/DownloadStatusBar";
+import { ExitGuard } from "./components/ExitGuard";
 import { KeepAliveRoutes } from "./components/KeepAliveRoutes";
 import { LaunchPage } from "./pages/LaunchPage";
 import { useDownloadStatus } from "./lib/downloadStatus";
@@ -25,6 +26,9 @@ const ServersPage = lazy(() =>
   import("./pages/ServersPage").then((m) => ({ default: m.ServersPage })),
 );
 const HostPage = lazy(() => import("./pages/HostPage").then((m) => ({ default: m.HostPage })));
+const TerracottaPage = lazy(() =>
+  import("./pages/TerracottaPage").then((m) => ({ default: m.TerracottaPage })),
+);
 const AccountsPage = lazy(() =>
   import("./pages/AccountsPage").then((m) => ({ default: m.AccountsPage })),
 );
@@ -74,6 +78,7 @@ export default function App() {
       versions: t("navVersions"),
       servers: t("navServers"),
       host: t("navHost"),
+      terracotta: t("navTerracotta"),
       accounts: t("navAccounts"),
       settings: t("navSettings"),
     }),
@@ -150,6 +155,15 @@ export default function App() {
         ),
       },
       {
+        id: "terracotta",
+        match: (p: string) => p.startsWith("/terracotta"),
+        element: (
+          <LazyPane>
+            <TerracottaPage />
+          </LazyPane>
+        ),
+      },
+      {
         id: "accounts",
         match: (p: string) => p.startsWith("/accounts"),
         element: (
@@ -183,6 +197,7 @@ export default function App() {
         <KeepAliveRoutes panes={panes} maxAlive={3} stickyIds={stickyPaneIds} />
       </AppShell>
       <DownloadStatusBar />
+      <ExitGuard />
     </>
   );
 }

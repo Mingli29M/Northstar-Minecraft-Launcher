@@ -175,35 +175,75 @@ pub fn infer_loader(name: &str, game_version: &str, current: LoaderKind) -> Load
     current
 }
 
+/// True for strings that can plausibly be Mojang version ids (releases, pre/rc,
+/// weeklies like `26w14a`, or classic/beta like `b1.7.3`). Pack names such as
+/// `Create：Complete` must never pass.
+pub fn is_plausible_game_version(raw: &str) -> bool {
+    let v = raw.trim();
+    if v.is_empty() || v.len() > 32 {
+        return false;
+    }
+    // Weekly snapshot: 24w45a
+    if regex::Regex::new(r"(?i)^\d{2,}w\d{1,2}[a-z]$")
+        .ok()
+        .is_some_and(|re| re.is_match(v))
+    {
+        return true;
+    }
+    // Release / pre / rc: 1.21.1, 1.21.1-pre1, 1.21-rc2
+    if regex::Regex::new(r"(?i)^\d+\.\d+(?:\.\d+)?(?:-(?:pre|rc|snapshot)\.?\d*)?$")
+        .ok()
+        .is_some_and(|re| re.is_match(v))
+    {
+        return true;
+    }
+    // Classic / beta / alpha: b1.7.3, a1.2.6, c0.30_01c
+    if regex::Regex::new(r"(?i)^[abc]\d+(?:\.\d+)+(?:[._][0-9a-z]+)*$")
+        .ok()
+        .is_some_and(|re| re.is_match(v))
+    {
+        return true;
+    }
+    false
+}
+
 /// Pull a real Minecraft version id out of messy strings like "1.21.1-Fabric NNEW".
 /// Never keeps a bare trailing `-` (that broke Modrinth facets as `1.21.1-`).
+/// Returns an empty string when nothing plausible is found — never a pack name.
 pub fn normalize_game_version(raw: &str) -> String {
     let trimmed = raw.trim().trim_end_matches('-').trim();
-    let re = regex::Regex::new(
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if is_plausible_game_version(trimmed) {
+        return trimmed.to_string();
+    }
+    // Prefer weeklies embedded in longer labels before dotted releases, so
+    // `Pack 26w14a` doesn't get misread as something else.
+    if let Ok(re) = regex::Regex::new(r"(?i)(\d{2,}w\d{1,2}[a-z])") {
+        if let Some(caps) = re.captures(trimmed) {
+            return caps[1].to_string();
+        }
+    }
+    if let Ok(re) = regex::Regex::new(
         r"(?i)(\d+\.\d+(?:\.\d+)?(?:-(?:pre|rc|snapshot)\.?\d*)?)",
-    )
-    .ok();
-    if let Some(re) = re {
+    ) {
         if let Some(caps) = re.captures(trimmed) {
             let mut v = caps[1].to_string();
             while v.ends_with('-') {
                 v.pop();
             }
-            return v;
+            if is_plausible_game_version(&v) {
+                return v;
+            }
         }
     }
-    let mut base = trimmed
-        .split(|c: char| c.is_whitespace())
-        .next()
-        .unwrap_or("1.21.1")
-        .to_string();
-    if let Some((head, tail)) = base.split_once('-') {
-        let t = tail.to_lowercase();
-        if !(t.starts_with("pre") || t.starts_with("rc") || t.starts_with("snapshot")) {
-            base = head.to_string();
+    if let Ok(re) = regex::Regex::new(r"(?i)\b([abc]\d+(?:\.\d+)+(?:[._][0-9a-z]+)*)\b") {
+        if let Some(caps) = re.captures(trimmed) {
+            return caps[1].to_string();
         }
     }
-    base.trim_end_matches('-').to_string()
+    String::new()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -275,7 +315,7 @@ pub struct LauncherSettings {
     /// UI scale factor: 0.9 / 1 / 1.1 / 1.25
     #[serde(default)]
     pub ui_scale: Option<f64>,
-    /// Panel chrome opacity 0.55–1.0 (UI only; window stays opaque)
+    /// Window / panel opacity 0.2–1.0 (lower = more of the desktop shows through)
     #[serde(default)]
     pub ui_panel_opacity: Option<f64>,
     /// Snapshot worlds before launch when enabled
@@ -290,6 +330,12 @@ pub struct LauncherSettings {
     /// Experimental: emit issues from local jar metadata (unstable; off by default).
     #[serde(default)]
     pub reqguard_local_scan: Option<bool>,
+    /// Compact Launch page: version picker + Start + override only.
+    #[serde(default)]
+    pub launch_only_selected: Option<bool>,
+    /// `top` (default) or `bottom` — where the Start button sits on Launch.
+    #[serde(default)]
+    pub launch_start_position: Option<String>,
 }
 
 impl Default for LauncherSettings {
@@ -313,6 +359,8 @@ impl Default for LauncherSettings {
             auto_backup_keep: Some(5),
             reqguard_deep_validation: Some(true),
             reqguard_local_scan: Some(false),
+            launch_only_selected: Some(false),
+            launch_start_position: Some("top".into()),
         }
     }
 }

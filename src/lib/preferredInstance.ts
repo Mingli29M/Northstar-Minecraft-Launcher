@@ -1,4 +1,6 @@
 import { api } from "./api";
+import { notifySettings } from "./appearance";
+import { getSettingsSnapshot } from "./settingsStore";
 import type { Instance, LauncherSettings } from "./types";
 
 /** Prefer Launch's last selected instance, else first in the list. */
@@ -32,9 +34,24 @@ export async function loadPreferredInstanceId(): Promise<{
 export async function rememberPreferredInstance(instanceId: string): Promise<void> {
   if (!instanceId) return;
   try {
-    const settings = await api.getSettings();
+    // Prefer the live snapshot so we never rewrite a pending Appearance change
+    // (e.g. Start button position) from a stale getSettings cache/disk read.
+    const settings = getSettingsSnapshot() ?? (await api.getSettings());
     if (settings.last_instance_id === instanceId) return;
-    await api.saveSettings({ ...settings, last_instance_id: instanceId });
+    const next = { ...settings, last_instance_id: instanceId };
+    // Preserve layout flags from the live snapshot even if a concurrent save
+    // returns an older disk payload.
+    const snap = getSettingsSnapshot();
+    const saved = await api.saveSettings(next);
+    const merged = {
+      ...saved,
+      launch_start_position:
+        snap?.launch_start_position ?? saved.launch_start_position,
+      launch_only_selected:
+        snap?.launch_only_selected ?? saved.launch_only_selected,
+      last_instance_id: instanceId,
+    };
+    notifySettings(merged);
   } catch {
     /* ignore persistence failures */
   }

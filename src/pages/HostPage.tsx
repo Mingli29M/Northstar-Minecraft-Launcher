@@ -254,25 +254,29 @@ export function HostPage() {
   }, [navigate, refreshList, t]);
 
   const loadDetail = useCallback(
-    async (serverId: string) => {
+    async (serverId: string, listHint?: Awaited<ReturnType<typeof api.listDedicated>>) => {
       try {
-        const list = await refreshList();
+        const list = listHint ?? (await refreshList());
         const server = list.find((s) => s.id === serverId);
         if (!server) {
           await handleMissing();
           return;
         }
         setSelected(server);
-        const [st, pr, pl, ni] = await Promise.all([
+        // Fast path: status + config first. Network/UPnP/public-IP is deferred so
+        // opening Host does not wait on gateway discovery.
+        const [st, pr, pl] = await Promise.all([
           api.dedicatedStatus(serverId),
           api.getDedicatedProperties(serverId),
           api.getDedicatedPlayerLists(serverId),
-          api.dedicatedNetworkInfo(serverId),
         ]);
         setStatus(st);
         setProps(pr);
         setLists(pl);
-        setNet(ni);
+        void api
+          .dedicatedNetworkInfo(serverId)
+          .then(setNet)
+          .catch(() => undefined);
       } catch (e) {
         if (isMissingServerError(e)) await handleMissing();
         else setError(String(e));
@@ -289,7 +293,7 @@ export function HostPage() {
     refreshList()
       .then((list) => {
         if (cancelled || !onHostRoute) return;
-        if (id) return loadDetail(id);
+        if (id) return loadDetail(id, list);
         setSelected(list[0] ?? null);
         if (list[0]) navigate(`/host/${list[0].id}`, { replace: true });
       })
@@ -346,18 +350,22 @@ export function HostPage() {
     return () => clearInterval(timer);
   }, [onHostRoute, id, status?.running, tab]);
 
+  // Always poll while a server is selected — do not stop when UI thinks it is
+  // Stopped, or a false negative freezes the badge until remount.
   useEffect(() => {
-    if (!onHostRoute || !id || !status?.running) return;
-    const timer = setInterval(() => {
+    if (!onHostRoute || !id) return;
+    const tick = () => {
       api
         .dedicatedStatus(id)
         .then(setStatus)
         .catch(async (e) => {
           if (isMissingServerError(e)) await handleMissing();
         });
-    }, 5000);
+    };
+    tick();
+    const timer = setInterval(tick, 4000);
     return () => clearInterval(timer);
-  }, [onHostRoute, id, status?.running, handleMissing]);
+  }, [onHostRoute, id, handleMissing]);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -626,9 +634,17 @@ export function HostPage() {
                 onClick={() => navigate(`/host/${s.id}`)}
               >
                 <VStack gap={0} style={{ minWidth: 0, flex: 1 }}>
-                  <Text weight="semibold" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {s.name}
-                  </Text>
+                  <HStack gap={1} align="center" style={{ minWidth: 0 }}>
+                    <Text weight="semibold" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {s.name}
+                    </Text>
+                    {selected?.id === s.id && status?.running && (
+                      <span className="euml-host-status is-running" style={{ padding: "2px 8px", fontSize: 10 }}>
+                        <span className="euml-host-status__dot" aria-hidden />
+                        {t("hostRunning")}
+                      </span>
+                    )}
+                  </HStack>
                   <Text color="secondary" type="supporting">
                     {s.gameVersion} · {s.loader} · :{s.port}
                   </Text>
@@ -650,10 +666,19 @@ export function HostPage() {
               <VStack gap={3}>
                 <HStack justify="between" align="center" style={{ flexWrap: "wrap" }} gap={2}>
                   <VStack gap={1}>
-                    <Text type="display-3">{selected.name}</Text>
+                    <HStack gap={2} align="center" style={{ flexWrap: "wrap" }}>
+                      <Text type="display-3">{selected.name}</Text>
+                      <span
+                        className={`euml-host-status ${status?.running ? "is-running" : "is-stopped"}`}
+                        title={status?.pid ? `PID ${status.pid}` : undefined}
+                      >
+                        <span className="euml-host-status__dot" aria-hidden />
+                        {status?.running ? t("hostRunning") : t("hostStopped")}
+                        {status?.pid ? ` · PID ${status.pid}` : ""}
+                      </span>
+                    </HStack>
                     <Text color="secondary">
-                      {status?.running ? t("hostRunning") : t("hostStopped")}
-                      {status?.pid ? ` · PID ${status.pid}` : ""}
+                      {selected.gameVersion} · {selected.loader} · :{selected.port}
                       {" · "}
                       {selected.installed ? t("hostInstalled") : t("hostNotInstalled")}
                     </Text>
@@ -1365,13 +1390,18 @@ export function HostPage() {
               }}
             >
               <HStack gap={2} align="center" style={{ flexWrap: "wrap" }}>
-                <Text color="secondary" type="supporting" style={{ marginRight: 8 }}>
+                <span
+                  className={`euml-host-status ${status?.running ? "is-running" : "is-stopped"}`}
+                  style={{ marginRight: 8 }}
+                >
+                  <span className="euml-host-status__dot" aria-hidden />
                   {status?.running
                     ? t("hostRunning")
                     : selected.installed
-                      ? t("hostInstalled")
+                      ? t("hostStopped")
                       : t("hostNotInstalled")}
-                </Text>
+                  {status?.pid ? ` · PID ${status.pid}` : ""}
+                </span>
                 {!selected.installed ? (
                   <Button
                     label={busy ? t("hostInstalling") : t("hostInstall")}

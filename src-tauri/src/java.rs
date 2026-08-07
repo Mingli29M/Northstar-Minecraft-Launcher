@@ -347,7 +347,9 @@ pub fn resolve_java_path(game_version: &str, override_path: Option<&str>) -> Res
         .into_iter()
         .filter_map(|p| java_major_version(&p).map(|v| (v, p)))
         .collect();
-    ranked.sort_by(|a, b| b.0.cmp(&a.0));
+    // Prefer the closest matching major (Java 21 for 1.21.x) over a newer JDK
+    // that often breaks ModLauncher / NeoForge.
+    ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
     if let Some((_, path)) = ranked.iter().find(|(v, _)| *v >= need) {
         return Ok(path.clone());
     }
