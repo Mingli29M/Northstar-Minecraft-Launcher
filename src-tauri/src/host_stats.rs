@@ -272,10 +272,10 @@ $obj = [pscustomobject]@{{
 $obj | ConvertTo-Json -Compress
 "#
     );
-    let out = Command::new("powershell")
-        .args(["-NoProfile", "-Command", &script])
-        .output()
-        .ok()?;
+    let mut ps = Command::new("powershell");
+    ps.args(["-NoProfile", "-Command", &script]);
+    crate::win_cmd::hide_console(&mut ps);
+    let out = ps.output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let text = text.trim();
     if text.is_empty() || text == "null" {
@@ -302,10 +302,10 @@ foreach ($s in $stats) {
 }
 (@{ recv = $recv; sent = $sent }) | ConvertTo-Json -Compress
 "#;
-    let out = Command::new("powershell")
-        .args(["-NoProfile", "-Command", script])
-        .output()
-        .ok()?;
+    let mut ps = Command::new("powershell");
+    ps.args(["-NoProfile", "-Command", script]);
+    crate::win_cmd::hide_console(&mut ps);
+    let out = ps.output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let text = text.trim();
     if text.is_empty() || text == "null" {

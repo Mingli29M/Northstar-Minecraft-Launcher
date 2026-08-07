@@ -4,6 +4,81 @@ Launcher release notes for the desktop app (Tauri). Website marketing changes li
 
 > **Split (1.1.1):** Launcher and website changelogs are maintained as separate files. This file covers the desktop launcher only.
 
+## 1.3.0 — 2026-08-07
+
+Translucent window over the desktop, reliable Launch layout controls, richer Modrinth install/detail UX, and a real Litematica tab.
+
+### Appearance
+- **See-through window** — panel opacity now controls real OS window translucency (Acrylic/Blur) so your desktop wallpaper can show through the launcher
+- Opacity applies to the window wash only; cards, lists, selectors and menus stay solid so text stays readable
+- Range widened to 20–100%
+
+### Launch
+- **Fix Start button position not applying** — Settings → Appearance uses clear Top / Bottom controls, works in compact and full layouts, and no longer gets overwritten by keep-alive / settings races
+- Compact mode no longer locks or forces Start position
+
+### Mods
+- Modrinth install opens a version picker with prerequisites (required / optional / incompatible), nested dependency install, and an “Installed” badge
+- Mod detail page renders Markdown descriptions, a gallery with lightbox, and a fuller versions list
+- Mod installs report download progress in the dock (and stay visible above the install modal)
+
+### Versions
+- New **Litematica** instance tab to import, export, delete, and open schematics (`.litematic` / `.schematic` / `.schem`)
+- Worlds and schematics no longer share list state (fixes worlds briefly showing as Litematica items)
+
+### Worlds
+- Chunkbase seed map opens in the system browser (in-app iframe / WebviewWindow blocked by Chunkbase headers and Windows deadlocks)
+
+## 1.2.4 — 2026-08-06
+
+Host panel reliability plus Terracotta multiplayer as an AGPL sidecar (Northstar license unchanged).
+
+### Host
+- Hide helper/server consoles on Windows (`CREATE_NO_WINDOW`) so Start no longer pops many terminal windows
+- Opening Host no longer waits on public-IP / UPnP gateway discovery; Network tab loads that in the background
+- Status polling continues even when the UI briefly thinks the server is Stopped
+- Port-based + improved orphan recovery so a live server is not marked Stopped after launcher reload
+- Standout Running / Stopped badge (header + sticky bar) with PID when available
+
+### Terracotta
+- New **Terracotta** nav tab downloads and runs the official unmodified `0.4.2` package as a separate process
+- Talks only over Terracotta’s local HTTP IPC (`--hmcl`); does **not** link Terracotta source into Northstar
+- Host / join room flow with required AGPL attribution in the tab and Settings → About
+- Terracotta remains AGPL-3.0-or-later; Northstar stays proprietary (All Rights Reserved)
+- **Fix "Access is denied (os error 5)" on Reinstall** — the sidecar no longer uses its own install folder as its working directory, and the port handoff file moved to a temp dir, so the folder is never locked while being replaced
+- Reinstall now stops sidecars started from our install folder first (scoped by executable path, so another launcher's Terracotta is untouched), stages the extract in a sibling folder, and swaps it in
+- Package downloads are verified against the official SHA-512 and retried across four mirrors, so a truncated archive is replaced instead of being cached as "good" forever
+- **Fix Terracotta being reported as errored** — a missed `/state` poll is retried (as HMCL does) and only counts as an error once the process is actually gone; startup shows "Starting…"
+- Install state is checksum-verified, so a half-extracted executable reads as "not installed" instead of failing at launch
+- Room/connection states now show readable labels ("Hosting", "Connecting to room…") instead of raw `host-ok` style names, and Terracotta's own connection errors are explained
+- **Fix Start never sticking** — on Windows `--hmcl` is only a trampoline that re-spawns the binary detached and exits within 8 seconds, so the launcher watched the wrong process and decided the sidecar had died seconds after a successful start. Northstar now starts the real server directly and owns it
+- **Fix orphaned sidecars** — because Stop was killing that already-exited trampoline, the real server survived every Stop and quit, holding Terracotta's machine-wide lock and a file lock on the executable. That single leftover process was also the underlying cause of repeat "os error 5" reinstall failures
+- Stop now asks the sidecar to shut down cleanly (releasing the lock) before falling back to terminating it
+- Start attaches to a sidecar that is already up instead of failing, and Northstar re-attaches on launch to one left behind by a crash — scoped to servers it started, so a Terracotta owned by HMCL or PCL is never adopted, stopped, or counted by the exit prompt
+- A failed start now prints the tail of Terracotta's own log to the launcher console; it is a windowless process that redirects its output to a file, so nothing was previously visible to explain a failure
+
+### Downloads
+- Large single-file downloads (Terracotta, Java runtimes, server jars, installers, plugins) now report progress — previously they ran completely silently with no dock entry or console line
+- Progress dock shows transferred size and speed (`12.3 MB / 45.6 MB`, `3.1 MB/s`) for single-file transfers, keeping file counts for multi-file batches
+
+### Reliability
+- Closing Northstar while a dedicated server or Terracotta is running now asks first, naming what would be shut down, instead of silently orphaning the process
+- **Stop and quit** shuts everything down cleanly; **Keep running** cancels the close
+
+### Appearance
+- **Fix Appearance settings doing nothing** — Astryx parks accent/card tokens in `@layer astryx-theme` + `@scope`, so our old inline CSS variables never won the cascade. Appearance now injects an unlayered stylesheet that actually overrides accent, fonts, panel opacity and background, applies live, auto-saves, and pushes Launch layout flags (compact / Start position) into the keep-alive Launch page immediately
+
+### Launch
+- **Fix a newly downloaded or imported instance not appearing in the start menu** — the Launch page stays mounted in the background for speed and was only reading the instance list once, so it kept showing a stale list until the app was restarted. It now refreshes whenever you return to it, keeping your current selection
+- **Compact Launch page** and **Start button position** live in Settings → Appearance (not as extra Launch toggles). Compact mode strips Launch to the version picker, Start and ReqGuard override, and docks Start at the bottom; the position setting applies on the full page
+- **Fix downloads that treated pack names as Minecraft versions** — strings like `Create：Complete` are no longer accepted as `game_version`. Prepare now tells you to set a real version in Version settings instead of looking for a Mojang id that does not exist
+- **Local metadata scan off means no jar unzipping** — with the experimental local scan disabled, ReqGuard no longer opens every mod jar; with both local and deep off, the Launch panel skips scanning entirely
+
+### Localization
+- Removed Chinese text that appeared in the English and German UI (Terracotta notes, multiplayer hint)
+- The offline-account "username cannot be empty" error is no longer hard-coded in Chinese
+- The Servers page Terracotta button now opens the in-app tab instead of an external download page
+
 ## 1.2.3 — 2026-08-06
 
 Security hardening for local file access and avatar downloads.

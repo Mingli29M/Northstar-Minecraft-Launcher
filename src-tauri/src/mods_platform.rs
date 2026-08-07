@@ -1,12 +1,14 @@
+use crate::download::{download_file, download_many_progress, emit_idle, emit_progress, DownloadProgress};
 use crate::instances::{create_instance, get_instance};
 use crate::models::{LoaderKind, ModEntry};
-use crate::paths::minecraft_dir;
+use crate::paths::{app_root, minecraft_dir};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tauri::AppHandle;
 use zip::ZipArchive;
 
 #[derive(Debug, Deserialize, serde::Serialize)]
@@ -26,6 +28,17 @@ pub struct ModrinthHit {
 pub struct ModrinthVersion {
     pub id: String,
     pub version_number: String,
+    #[serde(default)]
+    pub name: String,
+    /// release | beta | alpha
+    #[serde(default)]
+    pub version_type: String,
+    #[serde(default)]
+    pub loaders: Vec<String>,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    #[serde(default)]
+    pub date_published: String,
     pub files: Vec<ModrinthFile>,
     #[serde(default)]
     pub dependencies: Vec<ModrinthDependency>,
@@ -42,6 +55,10 @@ pub struct ModrinthDependency {
     /// required | optional | incompatible | embedded
     #[serde(default)]
     pub dependency_type: String,
+    #[serde(default)]
+    pub project_title: Option<String>,
+    #[serde(default)]
+    pub project_slug: Option<String>,
 }
 
 #[derive(Debug, Deserialize, serde::Serialize, Clone)]
@@ -49,6 +66,17 @@ pub struct ModrinthFile {
     pub url: String,
     pub filename: String,
     pub primary: bool,
+    #[serde(default)]
+    pub sha1: Option<String>,
+}
+
+#[derive(Debug, Deserialize, serde::Serialize, Clone)]
+pub struct ModrinthGalleryImage {
+    pub url: String,
+    #[serde(default)]
+    pub featured: bool,
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 pub fn search_mods(
@@ -60,7 +88,7 @@ pub fn search_mods(
     search_modrinth_projects(&query, &game_version, &loader, "mod", categories.as_deref())
 }
 
-/// Search Modrinth for mods / resource packs / shaders / datapacks.
+/// Search Modrinth for mods / modpacks / resource packs / shaders / datapacks.
 pub fn search_content(
     query: String,
     game_version: String,
@@ -69,6 +97,7 @@ pub fn search_content(
     categories: Option<Vec<String>>,
 ) -> Result<Vec<ModrinthHit>, String> {
     let pt = match project_type.as_str() {
+        "modpack" | "modpacks" | "pack" | "packs" => "modpack",
         "resourcepack" | "resourcepacks" => "resourcepack",
         "shader" | "shaders" | "shaderpack" | "shaderpacks" => "shader",
         "datapack" | "datapacks" => "datapack",
@@ -97,8 +126,8 @@ fn search_modrinth_projects(
         format!("[\"versions:{game_version}\"]"),
         format!("[\"project_type:{project_type}\"]"),
     ];
-    // Only filter by loader for mods — packs/shaders are loader-agnostic.
-    if project_type == "mod" {
+    // Mods and modpacks are loader-scoped; resource/shader/datapacks are not.
+    if project_type == "mod" || project_type == "modpack" {
         match loader.as_str() {
             "quilt" => facet_parts.push("[\"categories:quilt\",\"categories:fabric\"]".into()),
             "forge" => facet_parts.push("[\"categories:forge\"]".into()),
@@ -166,8 +195,9 @@ fn search_modrinth_projects(
     let versions_map: Vec<(String, Vec<ModrinthVersion>)> = hit_meta
         .par_iter()
         .map(|(project_id, _, _, _, _, _)| {
-            let versions = fetch_compatible_versions(project_id, &game_version, &loader, project_type)
-                .unwrap_or_default();
+            let versions =
+                fetch_compatible_versions(project_id, &game_version, &loader, project_type, 3)
+                    .unwrap_or_default();
             (project_id.clone(), versions)
         })
         .collect();
@@ -194,6 +224,7 @@ fn fetch_compatible_versions(
     game_version: &str,
     loader: &str,
     project_type: &str,
+    limit: usize,
 ) -> Result<Vec<ModrinthVersion>, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -204,7 +235,8 @@ fn fetch_compatible_versions(
         urlencoding::encode(&format!("[\"{game_version}\"]"))
     );
     let loader_l = loader.to_lowercase();
-    if project_type == "mod" && loader_l != "vanilla" {
+    let filter_loaders = matches!(project_type, "mod" | "modpack") && loader_l != "vanilla";
+    if filter_loaders {
         let loaders_json = if loader_l == "quilt" {
             "[\"quilt\",\"fabric\"]".to_string()
         } else {
@@ -245,29 +277,17 @@ fn fetch_compatible_versions(
         if !versions.iter().any(|g| g == game_version) {
             continue;
         }
-        if project_type == "mod"
-            && loader_l != "vanilla"
-            && !loaders.iter().any(|l| l.eq_ignore_ascii_case(&loader_l))
-        {
+        if filter_loaders && !loaders.iter().any(|l| l.eq_ignore_ascii_case(&loader_l)) {
             if !(loader_l == "quilt" && loaders.iter().any(|l| l == "fabric")) {
                 continue;
             }
         }
-        let files = v["files"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|f| ModrinthFile {
-                url: f["url"].as_str().unwrap_or("").to_string(),
-                filename: f["filename"].as_str().unwrap_or("file.zip").to_string(),
-                primary: f["primary"].as_bool().unwrap_or(false),
-            })
-            .collect::<Vec<_>>();
-        if files.is_empty() {
+        let parsed = parse_modrinth_version(v, project_id);
+        if parsed.files.is_empty() {
             continue;
         }
-        out.push(parse_modrinth_version(v, project_id));
-        if out.len() >= 3 {
+        out.push(parsed);
+        if out.len() >= limit {
             break;
         }
     }
@@ -283,8 +303,19 @@ fn parse_modrinth_deps(v: &Value) -> Vec<ModrinthDependency> {
             project_id: d["project_id"].as_str().map(|s| s.to_string()),
             version_id: d["version_id"].as_str().map(|s| s.to_string()),
             dependency_type: d["dependency_type"].as_str().unwrap_or("required").to_string(),
+            project_title: None,
+            project_slug: None,
         })
         .collect()
+}
+
+fn parse_modrinth_file(f: &Value) -> ModrinthFile {
+    ModrinthFile {
+        url: f["url"].as_str().unwrap_or("").to_string(),
+        filename: f["filename"].as_str().unwrap_or("file.zip").to_string(),
+        primary: f["primary"].as_bool().unwrap_or(false),
+        sha1: f["hashes"]["sha1"].as_str().map(|s| s.to_string()),
+    }
 }
 
 fn parse_modrinth_version(v: &Value, fallback_project: &str) -> ModrinthVersion {
@@ -292,15 +323,28 @@ fn parse_modrinth_version(v: &Value, fallback_project: &str) -> ModrinthVersion 
         .as_array()
         .into_iter()
         .flatten()
-        .map(|f| ModrinthFile {
-            url: f["url"].as_str().unwrap_or("").to_string(),
-            filename: f["filename"].as_str().unwrap_or("file.zip").to_string(),
-            primary: f["primary"].as_bool().unwrap_or(false),
-        })
+        .map(parse_modrinth_file)
         .collect::<Vec<_>>();
+    let loaders = v["loaders"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+        .collect();
+    let game_versions = v["game_versions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+        .collect();
     ModrinthVersion {
         id: v["id"].as_str().unwrap_or("").to_string(),
         version_number: v["version_number"].as_str().unwrap_or("").to_string(),
+        name: v["name"].as_str().unwrap_or("").to_string(),
+        version_type: v["version_type"].as_str().unwrap_or("release").to_string(),
+        loaders,
+        game_versions,
+        date_published: v["date_published"].as_str().unwrap_or("").to_string(),
         files,
         dependencies: parse_modrinth_deps(v),
         project_id: v["project_id"]
@@ -308,6 +352,115 @@ fn parse_modrinth_version(v: &Value, fallback_project: &str) -> ModrinthVersion 
             .unwrap_or(fallback_project)
             .to_string(),
     }
+}
+
+/// Batch-resolve project id → (slug, title) for dependency labels.
+fn fetch_project_titles(project_ids: &[String]) -> HashMap<String, (String, String)> {
+    let mut unique = Vec::new();
+    for id in project_ids {
+        if !id.is_empty() && !unique.contains(id) {
+            unique.push(id.clone());
+        }
+    }
+    if unique.is_empty() {
+        return HashMap::new();
+    }
+    let Ok(ids) = serde_json::to_string(&unique) else {
+        return HashMap::new();
+    };
+    let url = format!(
+        "https://api.modrinth.com/v2/projects?ids={}",
+        urlencoding::encode(&ids)
+    );
+    let Ok(client) = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+    else {
+        return HashMap::new();
+    };
+    let Ok(data) = client
+        .get(&url)
+        .header("User-Agent", "Northstar/1.2.3")
+        .send()
+        .and_then(|r| r.error_for_status())
+        .and_then(|r| r.json::<Value>())
+    else {
+        return HashMap::new();
+    };
+    let mut out = HashMap::new();
+    for project in data.as_array().into_iter().flatten() {
+        if let (Some(id), Some(slug)) = (project["id"].as_str(), project["slug"].as_str()) {
+            let title = project["title"].as_str().unwrap_or(slug).to_string();
+            out.insert(id.to_string(), (slug.to_string(), title));
+        }
+    }
+    out
+}
+
+fn enrich_version_deps(versions: &mut [ModrinthVersion]) {
+    let mut ids = Vec::new();
+    for v in versions.iter() {
+        for d in &v.dependencies {
+            if let Some(pid) = &d.project_id {
+                ids.push(pid.clone());
+            }
+        }
+    }
+    let titles = fetch_project_titles(&ids);
+    for v in versions.iter_mut() {
+        for d in &mut v.dependencies {
+            if let Some(pid) = &d.project_id {
+                if let Some((slug, title)) = titles.get(pid) {
+                    d.project_slug = Some(slug.clone());
+                    d.project_title = Some(title.clone());
+                }
+            }
+        }
+    }
+}
+
+/// Version ids (and filenames) already present in the instance mods folder.
+pub fn installed_modrinth_markers(instance_id: String) -> Result<InstalledModMarkers, String> {
+    let mods = minecraft_dir(&instance_id)?.join("mods");
+    let mut version_ids = Vec::new();
+    let mut filenames = Vec::new();
+    if !mods.is_dir() {
+        return Ok(InstalledModMarkers {
+            version_ids,
+            filenames,
+        });
+    }
+    let mut hashes = Vec::new();
+    for entry in fs::read_dir(&mods).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let base = name.strip_suffix(".disabled").unwrap_or(&name);
+        if !(base.ends_with(".jar") || base.ends_with(".zip")) {
+            continue;
+        }
+        filenames.push(base.to_string());
+        if let Ok(hash) = file_sha1_hex(&path) {
+            hashes.push(hash);
+        }
+    }
+    if let Ok(map) = lookup_versions_by_hashes(&hashes) {
+        for v in map.values() {
+            if !v.id.is_empty() && !version_ids.contains(&v.id) {
+                version_ids.push(v.id.clone());
+            }
+        }
+    }
+    Ok(InstalledModMarkers {
+        version_ids,
+        filenames,
+    })
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct InstalledModMarkers {
+    pub version_ids: Vec<String>,
+    pub filenames: Vec<String>,
 }
 
 /// Resolve many SHA1 hashes in one Modrinth request.
@@ -392,6 +545,7 @@ pub fn fetch_version(version_id: &str) -> Result<ModrinthVersion, String> {
 
 /// Install a Modrinth project by id (latest compatible version) and required deps.
 pub fn install_project_with_deps(
+    app: Option<&AppHandle>,
     instance_id: &str,
     project_id: &str,
     game_version: &str,
@@ -401,18 +555,14 @@ pub fn install_project_with_deps(
     if depth > 6 {
         return Ok(Vec::new());
     }
-    let versions = fetch_compatible_versions(project_id, game_version, loader, "mod")?;
+    let versions = fetch_compatible_versions(project_id, game_version, loader, "mod", 3)?;
     let version = versions
         .first()
         .ok_or_else(|| format!("No compatible Modrinth version for `{project_id}`"))?;
     // Re-fetch for full dependency list
     let full = fetch_version(&version.id).unwrap_or_else(|_| version.clone());
     let mut installed = Vec::new();
-    install_mod(
-        instance_id.to_string(),
-        project_id.to_string(),
-        full.id.clone(),
-    )?;
+    install_mod_jar(app, instance_id, &full.id)?;
     installed.push(project_id.to_string());
 
     for dep in full.dependencies {
@@ -422,8 +572,14 @@ pub fn install_project_with_deps(
         let Some(dep_project) = dep.project_id.filter(|s| !s.is_empty()) else {
             continue;
         };
-        match install_project_with_deps(instance_id, &dep_project, game_version, loader, depth + 1)
-        {
+        match install_project_with_deps(
+            app,
+            instance_id,
+            &dep_project,
+            game_version,
+            loader,
+            depth + 1,
+        ) {
             Ok(more) => installed.extend(more),
             Err(e) => {
                 // Soft-fail nested deps; caller can re-scan
@@ -444,74 +600,52 @@ pub fn file_sha1_hex(path: &std::path::Path) -> Result<String, String> {
 }
 
 fn download_modrinth_version_file(
+    app: Option<&AppHandle>,
     version_id: &str,
     dest_dir: &PathBuf,
+    phase: &str,
 ) -> Result<String, String> {
-    let client = reqwest::blocking::Client::new();
-    let data: Value = client
-        .get(format!("https://api.modrinth.com/v2/version/{version_id}"))
-        .header("User-Agent", "Northstar/1.2.3")
-        .send()
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .json()
-        .map_err(|e| e.to_string())?;
-
-    let file = data["files"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|f| f["primary"].as_bool().unwrap_or(false))
-        .or_else(|| data["files"].as_array().and_then(|a| a.first()))
+    let full = fetch_version(version_id)?;
+    let file = full
+        .files
+        .iter()
+        .find(|f| f.primary)
+        .or_else(|| full.files.first())
         .ok_or("No file on version")?;
-
-    let url = file["url"].as_str().ok_or("Missing url")?;
-    let filename = file["filename"].as_str().unwrap_or("download.bin");
+    if file.url.is_empty() {
+        return Err("Missing download URL".into());
+    }
     fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
-    let dest = dest_dir.join(filename);
-    let bytes = client
-        .get(url)
-        .header("User-Agent", "Northstar/1.2.3")
-        .send()
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .bytes()
-        .map_err(|e| e.to_string())?;
-    fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
-    Ok(filename.to_string())
+    let dest = dest_dir.join(&file.filename);
+
+    emit_progress(
+        app,
+        DownloadProgress {
+            phase: phase.into(),
+            done: 0,
+            total: 1,
+            failed: 0,
+            current_file: Some(file.filename.clone()),
+            bytes_per_sec: None,
+            message: format!("Downloading {}…", file.filename),
+            active: true,
+            ..Default::default()
+        },
+    );
+    // Uses process AppHandle for byte-level ticks when Content-Length is known.
+    download_file(&file.url, &dest)?;
+    Ok(file.filename.clone())
 }
 
-pub fn install_mod(instance_id: String, project_id: String, version_id: String) -> Result<ModEntry, String> {
-    let dest_dir = minecraft_dir(&instance_id)?.join("mods");
-    let filename = download_modrinth_version_file(&version_id, &dest_dir)?;
+/// Download a single mod jar (no dependency walk, no idle emit).
+fn install_mod_jar(
+    app: Option<&AppHandle>,
+    instance_id: &str,
+    version_id: &str,
+) -> Result<ModEntry, String> {
+    let dest_dir = minecraft_dir(instance_id)?.join("mods");
+    let filename = download_modrinth_version_file(app, version_id, &dest_dir, "mod")?;
     let path = dest_dir.join(&filename);
-
-    // Auto-install required Modrinth dependency chain.
-    if let Ok(inst) = get_instance(&instance_id) {
-        if let Ok(full) = fetch_version(&version_id) {
-            for dep in full.dependencies {
-                if !dep.dependency_type.eq_ignore_ascii_case("required") {
-                    continue;
-                }
-                let Some(dep_project) = dep.project_id.filter(|s| !s.is_empty()) else {
-                    continue;
-                };
-                if dep_project == project_id {
-                    continue;
-                }
-                let _ = install_project_with_deps(
-                    &instance_id,
-                    &dep_project,
-                    &inst.game_version,
-                    inst.loader.as_str(),
-                    1,
-                );
-            }
-        }
-    }
-
     Ok(ModEntry {
         file_name: filename,
         enabled: true,
@@ -520,8 +654,70 @@ pub fn install_mod(instance_id: String, project_id: String, version_id: String) 
     })
 }
 
+pub fn install_mod(
+    app: Option<&AppHandle>,
+    instance_id: String,
+    project_id: String,
+    version_id: String,
+) -> Result<ModEntry, String> {
+    let entry = match install_mod_jar(app, &instance_id, &version_id) {
+        Ok(e) => e,
+        Err(e) => {
+            emit_idle(app, format!("Mod install failed: {e}"));
+            return Err(e);
+        }
+    };
+
+    // Auto-install required Modrinth dependency chain.
+    if let Ok(inst) = get_instance(&instance_id) {
+        if let Ok(full) = fetch_version(&version_id) {
+            let required: Vec<_> = full
+                .dependencies
+                .iter()
+                .filter(|d| d.dependency_type.eq_ignore_ascii_case("required"))
+                .filter_map(|d| d.project_id.clone().filter(|s| !s.is_empty()))
+                .filter(|dep_project| dep_project != &project_id)
+                .collect();
+            let total = required.len().saturating_add(1);
+            for (i, dep_project) in required.iter().enumerate() {
+                let label = dep_project.clone();
+                emit_progress(
+                    app,
+                    DownloadProgress {
+                        phase: "mod-deps".into(),
+                        done: i + 1,
+                        total,
+                        failed: 0,
+                        current_file: Some(label.clone()),
+                        bytes_per_sec: None,
+                        message: format!(
+                            "Installing dependency {label} ({}/{})…",
+                            i + 1,
+                            required.len()
+                        ),
+                        active: true,
+                        ..Default::default()
+                    },
+                );
+                let _ = install_project_with_deps(
+                    app,
+                    &instance_id,
+                    dep_project,
+                    &inst.game_version,
+                    inst.loader.as_str(),
+                    1,
+                );
+            }
+        }
+    }
+
+    emit_idle(app, format!("Installed {}", entry.file_name));
+    Ok(entry)
+}
+
 /// Install a Modrinth file into resourcepacks / shaderpacks / datapacks (world).
 pub fn install_content_from_modrinth(
+    app: Option<&AppHandle>,
     instance_id: String,
     version_id: String,
     kind: String,
@@ -534,34 +730,42 @@ pub fn install_content_from_modrinth(
         _ => "mods",
     };
 
-    if kind_norm == "datapacks" {
-        let world = world_name.ok_or("Select a world for datapack install")?;
-        let dest_dir = minecraft_dir(&instance_id)?
-            .join("saves")
-            .join(&world)
-            .join("datapacks");
-        if !minecraft_dir(&instance_id)?.join("saves").join(&world).exists() {
-            return Err("World not found".into());
+    let result = (|| -> Result<crate::models::ContentItem, String> {
+        if kind_norm == "datapacks" {
+            let world = world_name.ok_or("Select a world for datapack install")?;
+            let dest_dir = minecraft_dir(&instance_id)?
+                .join("saves")
+                .join(&world)
+                .join("datapacks");
+            if !minecraft_dir(&instance_id)?.join("saves").join(&world).exists() {
+                return Err("World not found".into());
+            }
+            let filename = download_modrinth_version_file(app, &version_id, &dest_dir, kind_norm)?;
+            let path = dest_dir.join(&filename);
+            return Ok(crate::models::ContentItem {
+                name: filename,
+                path: path.to_string_lossy().to_string(),
+                kind: "datapacks".into(),
+                icon_path: crate::icons::icon_for_pack(&path),
+            });
         }
-        let filename = download_modrinth_version_file(&version_id, &dest_dir)?;
+
+        let dest_dir = minecraft_dir(&instance_id)?.join(kind_norm);
+        let filename = download_modrinth_version_file(app, &version_id, &dest_dir, kind_norm)?;
         let path = dest_dir.join(&filename);
-        return Ok(crate::models::ContentItem {
+        Ok(crate::models::ContentItem {
             name: filename,
             path: path.to_string_lossy().to_string(),
-            kind: "datapacks".into(),
+            kind: kind_norm.into(),
             icon_path: crate::icons::icon_for_pack(&path),
-        });
-    }
+        })
+    })();
 
-    let dest_dir = minecraft_dir(&instance_id)?.join(kind_norm);
-    let filename = download_modrinth_version_file(&version_id, &dest_dir)?;
-    let path = dest_dir.join(&filename);
-    Ok(crate::models::ContentItem {
-        name: filename,
-        path: path.to_string_lossy().to_string(),
-        kind: kind_norm.into(),
-        icon_path: crate::icons::icon_for_pack(&path),
-    })
+    match &result {
+        Ok(item) => emit_idle(app, format!("Installed {}", item.name)),
+        Err(e) => emit_idle(app, format!("Install failed: {e}")),
+    }
+    result
 }
 
 pub fn list_instance_mods(instance_id: String) -> Result<Vec<ModEntry>, String> {
@@ -613,20 +817,89 @@ pub fn uninstall_mod(instance_id: String, file_name: String) -> Result<Vec<ModEn
     list_instance_mods(instance_id)
 }
 
-pub fn import_mrpack(path: String) -> Result<crate::models::Instance, String> {
-    let file = fs::File::open(&path).map_err(|e| e.to_string())?;
-    let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
-    let mut index_raw = String::new();
-    {
+/// Download a Modrinth modpack version (`.mrpack`) and import it as a new instance.
+pub fn install_modpack_from_modrinth(
+    app: Option<&AppHandle>,
+    version_id: String,
+) -> Result<crate::models::Instance, String> {
+    crate::console_log::append(app, "Fetching Modrinth modpack version…", "info");
+    let version = fetch_version(&version_id)?;
+    let file = version
+        .files
+        .iter()
+        .find(|f| f.primary)
+        .or_else(|| version.files.first())
+        .ok_or("Modrinth modpack version has no files")?;
+    if file.url.is_empty() {
+        return Err("Modrinth modpack file has no download URL".into());
+    }
+    let cache = app_root()?.join("cache").join("mrpacks");
+    fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
+    let dest = cache.join(if file.filename.to_ascii_lowercase().ends_with(".mrpack") {
+        file.filename.clone()
+    } else {
+        format!("{version_id}.mrpack")
+    });
+    emit_progress(
+        app,
+        DownloadProgress {
+            phase: "modpack".into(),
+            done: 0,
+            total: 1,
+            failed: 0,
+            current_file: Some(file.filename.clone()),
+            bytes_per_sec: None,
+            message: format!("Downloading {}", file.filename),
+            active: true,
+            ..Default::default()
+        },
+    );
+    download_file(&file.url, &dest)?;
+    let result = import_mrpack(app, dest.to_string_lossy().to_string());
+    let _ = fs::remove_file(&dest);
+    if result.is_err() {
+        emit_idle(app, "Modpack install failed");
+    }
+    result
+}
+
+fn mrpack_file_for_client(file: &Value) -> bool {
+    match file.pointer("/env/client").and_then(|v| v.as_str()) {
+        Some("unsupported") => false,
+        _ => true,
+    }
+}
+
+pub fn import_mrpack(
+    app: Option<&AppHandle>,
+    path: String,
+) -> Result<crate::models::Instance, String> {
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.is_file() {
+        return Err(format!("Modpack file not found: {path}"));
+    }
+
+    crate::console_log::append(app, format!("Reading modpack {path}…"), "info");
+    let index_raw = {
+        let file = fs::File::open(&path_buf).map_err(|e| e.to_string())?;
+        let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
         let mut index = archive
             .by_name("modrinth.index.json")
             .map_err(|e| format!("Not an mrpack: {e}"))?;
-        std::io::Read::read_to_string(&mut index, &mut index_raw).map_err(|e| e.to_string())?;
-    }
+        let mut raw = String::new();
+        std::io::Read::read_to_string(&mut index, &mut raw).map_err(|e| e.to_string())?;
+        raw
+    };
     let index: Value = serde_json::from_str(&index_raw).map_err(|e| e.to_string())?;
     let name = index["name"].as_str().unwrap_or("Imported Pack").to_string();
     let deps = &index["dependencies"];
-    let game_version = deps["minecraft"].as_str().unwrap_or("1.21.1").to_string();
+    let raw_gv = deps["minecraft"].as_str().unwrap_or("1.21.1");
+    let game_version = crate::models::normalize_game_version(raw_gv);
+    if !crate::models::is_plausible_game_version(&game_version) {
+        return Err(format!(
+            "Modpack has invalid Minecraft version '{raw_gv}'. Expected something like 1.21.1."
+        ));
+    }
     let loader = if deps.get("fabric-loader").is_some() {
         "fabric"
     } else if deps.get("quilt-loader").is_some() {
@@ -645,62 +918,136 @@ pub fn import_mrpack(path: String) -> Result<crate::models::Instance, String> {
         .or_else(|| deps["neoforge"].as_str())
         .map(|s| s.to_string());
 
-    let inst = create_instance(name, game_version.clone(), loader.into(), loader_version, 4096, None)?;
+    crate::console_log::append(
+        app,
+        format!("Creating instance `{name}` ({game_version} · {loader})…"),
+        "info",
+    );
+    let inst = create_instance(
+        name.clone(),
+        game_version.clone(),
+        loader.into(),
+        loader_version,
+        4096,
+        None,
+    )?;
+
     if loader != "vanilla" {
-        let _ = crate::loaders::install_loader(inst.id.clone());
+        crate::console_log::append(
+            app,
+            format!("Installing {loader} loader (this can take a few minutes)…"),
+            "progress",
+        );
+        emit_progress(
+            app,
+            DownloadProgress {
+                phase: "loader".into(),
+                done: 0,
+                total: 1,
+                failed: 0,
+                current_file: Some(loader.into()),
+                bytes_per_sec: None,
+                message: format!("Installing {loader}…"),
+                active: true,
+                ..Default::default()
+            },
+        );
+        match crate::loaders::install_loader(inst.id.clone()) {
+            Ok(_) => {
+                crate::console_log::append(app, format!("{loader} loader ready."), "info");
+            }
+            Err(e) => {
+                emit_idle(app, format!("Loader install failed: {e}"));
+                return Err(format!("Loader install failed: {e}"));
+            }
+        }
     }
 
-    let client = reqwest::blocking::Client::new();
-    let mods_dir = minecraft_dir(&inst.id)?.join("mods");
+    let root = minecraft_dir(&inst.id)?;
+    let mut jobs: Vec<(String, PathBuf)> = Vec::new();
     for file in index["files"].as_array().into_iter().flatten() {
-        let path_in = file["path"].as_str().unwrap_or("");
-        let downloads = file["downloads"].as_array();
-        let url = downloads
-            .and_then(|a| a.first())
-            .and_then(|u| u.as_str())
+        if !mrpack_file_for_client(file) {
+            continue;
+        }
+        let path_in = file["path"].as_str().unwrap_or("").replace('\\', "/");
+        if path_in.is_empty() || path_in.contains("..") {
+            continue;
+        }
+        let url = file["downloads"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|u| u.as_str())
+            .find(|u| !u.is_empty())
             .unwrap_or("");
         if url.is_empty() {
             continue;
         }
-        let dest = minecraft_dir(&inst.id)?.join(path_in);
+        let dest = root.join(Path::new(&path_in));
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).ok();
         }
-        if let Ok(bytes) = client.get(url).send().and_then(|r| r.bytes()) {
-            let _ = fs::write(dest, bytes);
-        } else {
-            // fallback filename into mods
-            let fname = PathBuf::from(path_in)
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| "mod.jar".into());
-            if let Ok(bytes) = client.get(url).send().and_then(|r| r.bytes()) {
-                let _ = fs::write(mods_dir.join(fname), bytes);
-            }
-        }
+        jobs.push((url.to_string(), dest));
     }
 
-    // Extract overrides/
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-        let name = file.name().to_string();
-        if let Some(rest) = name.strip_prefix("overrides/") {
-            if rest.is_empty() {
+    crate::console_log::append(
+        app,
+        format!("Downloading {} modpack files…", jobs.len()),
+        "progress",
+    );
+    let (ok, fail) = download_many_progress(jobs, app, "modpack-files", 0, None)?;
+    crate::console_log::append(
+        app,
+        format!("Modpack files done — ok {ok}, fail {fail}"),
+        if fail > 0 { "warn" } else { "info" },
+    );
+    if fail > 0 && ok == 0 {
+        emit_idle(app, "Modpack file downloads all failed");
+        return Err(format!(
+            "Failed to download modpack files ({fail} failed). Check network / download mirror."
+        ));
+    }
+
+    crate::console_log::append(app, "Extracting modpack overrides…", "progress");
+    let mut overrides = 0usize;
+    {
+        let file = fs::File::open(&path_buf).map_err(|e| e.to_string())?;
+        let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
+            let name = entry.name().to_string();
+            let Some(rest) = name
+                .strip_prefix("overrides/")
+                .or_else(|| name.strip_prefix("client-overrides/"))
+            else {
+                continue;
+            };
+            if rest.is_empty() || rest.contains("..") {
                 continue;
             }
-            let dest = minecraft_dir(&inst.id)?.join(rest);
-            if file.is_dir() {
+            let dest = root.join(rest);
+            if entry.is_dir() {
                 fs::create_dir_all(&dest).ok();
             } else {
                 if let Some(parent) = dest.parent() {
                     fs::create_dir_all(parent).ok();
                 }
                 let mut out = fs::File::create(&dest).map_err(|e| e.to_string())?;
-                std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
+                std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
+                overrides += 1;
             }
         }
     }
 
+    emit_idle(
+        app,
+        format!("Installed modpack `{name}` — {ok} files, {overrides} overrides"),
+    );
+    crate::console_log::append(
+        app,
+        format!("Modpack `{name}` ready ({ok} files, {overrides} overrides)."),
+        "info",
+    );
     get_instance(&inst.id)
 }
 
@@ -778,6 +1125,7 @@ pub struct ModrinthProjectDetails {
     pub discord_url: Option<String>,
     pub mcmod_url: String,
     pub curseforge_url: String,
+    pub gallery: Vec<ModrinthGalleryImage>,
     pub versions: Vec<ModrinthVersion>,
 }
 
@@ -812,8 +1160,28 @@ pub fn get_modrinth_project(
         .flatten()
         .filter_map(|c| c.as_str().map(|s| s.to_string()))
         .collect::<Vec<_>>();
-    let versions =
-        fetch_compatible_versions(&project_id, &game_version, &loader_s, &project_type).unwrap_or_default();
+    let mut versions =
+        fetch_compatible_versions(&project_id, &game_version, &loader_s, &project_type, 40)
+            .unwrap_or_default();
+    enrich_version_deps(&mut versions);
+
+    let mut gallery = data["gallery"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|g| {
+            let url = g["url"].as_str()?.to_string();
+            if url.is_empty() {
+                return None;
+            }
+            Some(ModrinthGalleryImage {
+                url,
+                featured: g["featured"].as_bool().unwrap_or(false),
+                title: g["title"].as_str().map(|s| s.to_string()),
+            })
+        })
+        .collect::<Vec<_>>();
+    gallery.sort_by(|a, b| b.featured.cmp(&a.featured));
 
     let q = urlencoding::encode(&title);
     Ok(ModrinthProjectDetails {
@@ -836,6 +1204,7 @@ pub fn get_modrinth_project(
         curseforge_url: format!(
             "https://www.curseforge.com/minecraft/search?page=1&pageSize=20&sortBy=relevancy&class=mod&search={q}"
         ),
+        gallery,
         versions,
     })
 }
@@ -912,7 +1281,12 @@ pub fn update_instance_mods(instance_id: String) -> Result<Vec<ModUpdateResult>,
                         continue;
                     }
                 }
-                match install_mod(instance_id.clone(), hit.project_id.clone(), ver.id.clone()) {
+                match install_mod(
+                    crate::app_handle::get(),
+                    instance_id.clone(),
+                    hit.project_id.clone(),
+                    ver.id.clone(),
+                ) {
                     Ok(entry) => {
                         // Remove old jar if different
                         if entry.file_name != m.file_name {

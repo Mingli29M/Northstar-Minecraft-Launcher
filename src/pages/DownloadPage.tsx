@@ -14,6 +14,7 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { DismissibleBanner } from "../components/DismissibleBanner";
 import { NewsPanel } from "../components/NewsPanel";
 import { FavoriteButton } from "../components/FavoriteButton";
+import { ModInstallPicker, type ModInstallKind } from "../components/ModInstallPicker";
 import { api } from "../lib/api";
 import { normalizeMcVersion } from "../lib/mcVersion";
 import { effectiveLoader } from "../lib/loaderDetect";
@@ -47,7 +48,7 @@ const MOD_TAGS = [
   "worldgen",
 ];
 
-type ContentTab = "mods" | "resourcepack" | "shader" | "datapack";
+type ContentTab = "mods" | "modpack" | "resourcepack" | "shader" | "datapack";
 
 export function DownloadPage() {
   const { t } = useI18n();
@@ -77,6 +78,10 @@ export function DownloadPage() {
   const [instances, setInstances] = useState<Instance[]>([]);
   const [searching, setSearching] = useState(false);
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const [installPicker, setInstallPicker] = useState<{
+    hit: ModrinthHit;
+    kind: ModInstallKind;
+  } | null>(null);
   const [javaStatus, setJavaStatus] = useState<JavaStatus | null>(null);
   const [javaBusy, setJavaBusy] = useState(false);
   const [, startTransition] = useTransition();
@@ -171,7 +176,15 @@ export function DownloadPage() {
   }, [targetInstance, tab]);
 
   const contentTab: ContentTab | null =
-    tab === "mods" || tab === "resourcepack" || tab === "shader" || tab === "datapack" ? tab : null;
+    tab === "mods" ||
+    tab === "packs" ||
+    tab === "resourcepack" ||
+    tab === "shader" ||
+    tab === "datapack"
+      ? tab === "packs"
+        ? "modpack"
+        : tab
+      : null;
 
   const runModrinthSearch = useCallback(
     (queryOverride?: string) => {
@@ -180,11 +193,13 @@ export function DownloadPage() {
       const projectType: ModrinthProjectType =
         contentTab === "mods"
           ? "mod"
-          : contentTab === "resourcepack"
-            ? "resourcepack"
-            : contentTab === "shader"
-              ? "shader"
-              : "datapack";
+          : contentTab === "modpack"
+            ? "modpack"
+            : contentTab === "resourcepack"
+              ? "resourcepack"
+              : contentTab === "shader"
+                ? "shader"
+                : "datapack";
       const cats = activeTag && contentTab === "mods" ? [activeTag] : undefined;
       setSearching(true);
       setError(null);
@@ -246,6 +261,13 @@ export function DownloadPage() {
     setStatus(t("preparing"));
     try {
       const gv = normalizeMcVersion(gameVersion);
+      if (!gv) {
+        setError(
+          `Invalid Minecraft version "${gameVersion}". Pick a real version like 1.21.1, not a pack name.`,
+        );
+        setStatus(null);
+        return;
+      }
       const inst = await api.createInstance({
         name: name || `${gv}-${loader}`,
         gameVersion: gv,
@@ -261,25 +283,41 @@ export function DownloadPage() {
     }
   }
 
-  async function installHit(hit: ModrinthHit, kind: ContentTab) {
-    if (!targetInstance || !hit.versions[0]) return;
+  function openInstallPicker(hit: ModrinthHit, kind: ContentTab) {
+    if (!hit.versions[0]) {
+      setError(t("noCompatibleVersion"));
+      return;
+    }
+    if (kind !== "modpack" && !targetInstance) {
+      setError(t("pickInstance"));
+      return;
+    }
     if (kind === "datapack" && !targetWorld) {
+      setError(t("pickWorld"));
+      return;
+    }
+    setError(null);
+    const installKind: ModInstallKind =
+      kind === "mods" ? "mod" : (kind as ModInstallKind);
+    setInstallPicker({ hit, kind: installKind });
+  }
+
+  async function installDatapackDirect(hit: ModrinthHit) {
+    // Datapacks still need a world target; picker installs content without world.
+    if (!hit.versions[0] || !targetInstance) return;
+    if (!targetWorld) {
       setError(t("pickWorld"));
       return;
     }
     setInstallingId(hit.project_id);
     setError(null);
     try {
-      if (kind === "mods") {
-        await api.installMod(targetInstance, hit.project_id, hit.versions[0].id);
-      } else {
-        await api.installContentFromModrinth(
-          targetInstance,
-          hit.versions[0].id,
-          kind,
-          kind === "datapack" ? targetWorld : null,
-        );
-      }
+      await api.installContentFromModrinth(
+        targetInstance,
+        hit.versions[0].id,
+        "datapack",
+        targetWorld,
+      );
       setStatus(`${t("install")}: ${hit.title}`);
     } catch (e) {
       setError(String(e));
@@ -302,18 +340,20 @@ export function DownloadPage() {
       <Card padding={4} className="euml-fade-in">
         <VStack gap={3}>
           <div className="euml-toolbar">
-            <Selector
-              label={t("targetVersion")}
-              value={targetInstance}
-              onChange={setTargetInstance}
-              options={[
-                { value: "", label: "—" },
-                ...instances.map((i) => ({
-                  value: i.id,
-                  label: `${i.name} · ${normalizeMcVersion(i.game_version)} · ${i.loader}`,
-                })),
-              ]}
-            />
+            {kind !== "modpack" && (
+              <Selector
+                label={t("targetVersion")}
+                value={targetInstance}
+                onChange={setTargetInstance}
+                options={[
+                  { value: "", label: "—" },
+                  ...instances.map((i) => ({
+                    value: i.id,
+                    label: `${i.name} · ${normalizeMcVersion(i.game_version)} · ${i.loader}`,
+                  })),
+                ]}
+              />
+            )}
             <Selector
               label={t("gameVersion")}
               value={searchVersion}
@@ -324,7 +364,7 @@ export function DownloadPage() {
                   : releaseVersions.map((id) => ({ value: id, label: id }))
               }
             />
-            {kind === "mods" && (
+            {(kind === "mods" || kind === "modpack") && (
               <Selector
                 label={t("loader")}
                 value={searchLoader}
@@ -344,7 +384,7 @@ export function DownloadPage() {
               />
             )}
             <TextInput
-              label={t("searchMods")}
+              label={kind === "modpack" ? t("searchModpacks") : t("searchMods")}
               value={modQuery}
               onChange={setModQuery}
               onEnter={() => runModrinthSearch(modQuery)}
@@ -358,7 +398,17 @@ export function DownloadPage() {
             {searching && <Spinner size="sm" />}
           </div>
 
-          {(kind === "mods" || kind === "resourcepack" || kind === "shader" || kind === "datapack") && (
+          {kind === "modpack" && (
+            <Text color="secondary" type="supporting">
+              {t("modpackInstallHint")}
+            </Text>
+          )}
+
+          {(kind === "mods" ||
+            kind === "modpack" ||
+            kind === "resourcepack" ||
+            kind === "shader" ||
+            kind === "datapack") && (
             <div className="euml-tags">
               <button
                 type="button"
@@ -436,11 +486,23 @@ export function DownloadPage() {
                   />
                   <Button size="sm" label={t("details")} onClick={() => openDetails(h)} />
                   <Button
-                    label={installingId === h.project_id ? t("installing") : t("install")}
+                    label={
+                      installingId === h.project_id
+                        ? kind === "modpack"
+                          ? t("installingModpack")
+                          : t("installing")
+                        : kind === "modpack"
+                          ? t("installModpack")
+                          : t("install")
+                    }
                     size="sm"
-                    isDisabled={!targetInstance || !ok || installingId != null}
+                    isDisabled={
+                      (!ok || installingId != null) || (kind !== "modpack" && !targetInstance)
+                    }
                     isLoading={installingId === h.project_id}
-                    onClick={() => installHit(h, kind)}
+                    onClick={() =>
+                      kind === "datapack" ? void installDatapackDirect(h) : openInstallPicker(h, kind)
+                    }
                   />
                 </HStack>
               </HStack>
@@ -459,6 +521,22 @@ export function DownloadPage() {
 
   return (
     <VStack gap={4} className="euml-page">
+      {installPicker && (
+        <ModInstallPicker
+          projectId={installPicker.hit.project_id}
+          title={installPicker.hit.title}
+          gameVersion={normalizeMcVersion(searchVersion)}
+          loader={searchLoader}
+          instanceId={targetInstance}
+          kind={installPicker.kind}
+          onClose={() => setInstallPicker(null)}
+          onInstalled={({ label, instanceId }) => {
+            setStatus(`${t("install")}: ${label}`);
+            setInstallPicker(null);
+            if (instanceId) navigate(`/versions/${instanceId}`);
+          }}
+        />
+      )}
       <Text type="display-3">{t("downloadTitle")}</Text>
       <TabList
         value={tab}
@@ -598,45 +676,51 @@ export function DownloadPage() {
       {tab === "datapack" && contentPanel("datapack")}
 
       {tab === "packs" && (
-        <Card padding={4} className="euml-fade-in">
-          <VStack gap={3}>
-            <Text color="secondary">{t("importFolderHint")}</Text>
-            <HStack gap={2}>
-              <Button
-                label={t("importMrpack")}
-                onClick={async () => {
-                  const path = await open({ filters: [{ name: "mrpack", extensions: ["mrpack"] }] });
-                  if (!path || Array.isArray(path)) return;
-                  navigate(`/versions/${(await api.importMrpack(path)).id}`);
-                }}
-              />
-              <Button
-                label={t("importPrism")}
-                onClick={async () => {
-                  const path = await open({ directory: true });
-                  if (!path || Array.isArray(path)) return;
-                  navigate(`/versions/${(await api.importForeignInstance(path)).id}`);
-                }}
-              />
-              <Button
-                label={t("importFolder")}
-                variant="primary"
-                onClick={async () => {
-                  const path = await open({ directory: true });
-                  if (!path || Array.isArray(path)) return;
-                  setError(null);
-                  try {
-                    const list = await api.importInstanceFolder(path);
-                    setStatus(t("importedCount", { count: list.length }));
-                    if (list[0]) navigate(`/versions/${list[0].id}`);
-                  } catch (e) {
-                    setError(String(e));
-                  }
-                }}
-              />
-            </HStack>
-          </VStack>
-        </Card>
+        <VStack gap={4} className="euml-fade-in">
+          {contentPanel("modpack")}
+          <Card padding={4}>
+            <VStack gap={3}>
+              <Text weight="semibold">{t("importLocalPack")}</Text>
+              <Text color="secondary" type="supporting">
+                {t("importFolderHint")}
+              </Text>
+              <HStack gap={2} style={{ flexWrap: "wrap" }}>
+                <Button
+                  label={t("importMrpack")}
+                  onClick={async () => {
+                    const path = await open({ filters: [{ name: "mrpack", extensions: ["mrpack"] }] });
+                    if (!path || Array.isArray(path)) return;
+                    navigate(`/versions/${(await api.importMrpack(path)).id}`);
+                  }}
+                />
+                <Button
+                  label={t("importPrism")}
+                  onClick={async () => {
+                    const path = await open({ directory: true });
+                    if (!path || Array.isArray(path)) return;
+                    navigate(`/versions/${(await api.importForeignInstance(path)).id}`);
+                  }}
+                />
+                <Button
+                  label={t("importFolder")}
+                  variant="primary"
+                  onClick={async () => {
+                    const path = await open({ directory: true });
+                    if (!path || Array.isArray(path)) return;
+                    setError(null);
+                    try {
+                      const list = await api.importInstanceFolder(path);
+                      setStatus(t("importedCount", { count: list.length }));
+                      if (list[0]) navigate(`/versions/${list[0].id}`);
+                    } catch (e) {
+                      setError(String(e));
+                    }
+                  }}
+                />
+              </HStack>
+            </VStack>
+          </Card>
+        </VStack>
       )}
     </VStack>
   );

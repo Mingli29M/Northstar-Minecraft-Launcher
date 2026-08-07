@@ -1,7 +1,7 @@
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { Text } from "@astryxdesign/core/Text";
@@ -28,6 +28,7 @@ import type {
   WorldSettings,
 } from "../lib/types";
 import { normalizeMcVersion } from "../lib/mcVersion";
+import { ChunkbaseSeedMap } from "../components/ChunkbaseSeedMap";
 import { DismissibleBanner } from "../components/DismissibleBanner";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { useFavorites } from "../lib/favorites";
@@ -56,6 +57,7 @@ export function VersionsPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [mods, setMods] = useState<ModEntry[]>([]);
   const [content, setContent] = useState<ContentItem[]>([]);
+  const [schematics, setSchematics] = useState<ContentItem[]>([]);
   const [worldsDetailed, setWorldsDetailed] = useState<WorldInfo[]>([]);
   const [expandedWorld, setExpandedWorld] = useState<string | null>(null);
   const [worldBackups, setWorldBackups] = useState<WorldBackup[]>([]);
@@ -74,6 +76,9 @@ export function VersionsPage() {
   const [draft, setDraft] = useState<Instance | null>(null);
   const [worldSettings, setWorldSettings] = useState<WorldSettings | null>(null);
   const [editingWorld, setEditingWorld] = useState<string | null>(null);
+  const [worldSettingsLoading, setWorldSettingsLoading] = useState(false);
+  const [worldSettingsError, setWorldSettingsError] = useState<string | null>(null);
+  const worldSettingsRef = useRef<HTMLDivElement | null>(null);
   const [configFiles, setConfigFiles] = useState<string[]>([]);
   const [configPath, setConfigPath] = useState("");
   const [configText, setConfigText] = useState("");
@@ -110,21 +115,19 @@ export function VersionsPage() {
           const m = await api.listInstanceMods(selected.id);
           if (!cancelled) setMods(m);
         } else if (tab === "worlds") {
-          const [worlds, litematica] = await Promise.all([
-            api.listWorldsDetailed(selected.id),
+          const worlds = await api.listWorldsDetailed(selected.id);
+          if (!cancelled) {
+            setWorldsDetailed(worlds);
+            // Keep shared `content` for datapacks target selector only — never mirror worlds into it.
+          }
+        } else if (tab === "litematica") {
+          const [listed, litematica] = await Promise.all([
+            api.listSchematics(selected.id),
             api.detectLitematica(selected.id),
           ]);
           if (!cancelled) {
-            setWorldsDetailed(worlds);
+            setSchematics(listed);
             setLitematicaInfo(litematica);
-            setContent(
-              worlds.map((w) => ({
-                name: w.name,
-                path: w.path,
-                kind: "saves",
-                icon_path: w.icon_path,
-              })),
-            );
           }
         } else if (tab === "resourcepacks") {
           const c = await api.listContent(selected.id, "resourcepacks");
@@ -254,16 +257,30 @@ export function VersionsPage() {
   useEffect(() => {
     if (!selected || !editingWorld) {
       setWorldSettings(null);
+      setWorldSettingsLoading(false);
+      setWorldSettingsError(null);
       return;
     }
     let cancelled = false;
+    setWorldSettings(null);
+    setWorldSettingsLoading(true);
+    setWorldSettingsError(null);
     api
       .getWorldSettings(selected.id, editingWorld)
       .then((s) => {
-        if (!cancelled) setWorldSettings(s);
+        if (cancelled) return;
+        setWorldSettings(s);
+        setWorldSettingsLoading(false);
+        // Bring the panel into view — it used to render below a long list.
+        requestAnimationFrame(() => {
+          worldSettingsRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        });
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e));
+        if (cancelled) return;
+        setWorldSettingsLoading(false);
+        setWorldSettingsError(String(e));
+        setError(String(e));
       });
     return () => {
       cancelled = true;
@@ -287,6 +304,13 @@ export function VersionsPage() {
   const filteredContent = useMemo(
     () => (q ? content.filter((c) => c.name.toLowerCase().includes(q)) : content),
     [content, q],
+  );
+  const filteredSchematics = useMemo(
+    () =>
+      (q ? schematics.filter((c) => c.name.toLowerCase().includes(q)) : schematics).filter(
+        (c) => c.kind === "schematics",
+      ),
+    [schematics, q],
   );
   const filteredWorldsDetailed = useMemo(
     () => (q ? worldsDetailed.filter((w) => w.name.toLowerCase().includes(q)) : worldsDetailed),
@@ -652,11 +676,19 @@ export function VersionsPage() {
               onChange={(v) => {
                 setTab(v);
                 setContentQuery("");
+                // Clear shared lists immediately so the previous tab never paints into the next.
+                setContent([]);
+                setSchematics([]);
+                if (v !== "worlds") {
+                  setEditingWorld(null);
+                  setExpandedWorld(null);
+                }
               }}
             >
               <Tab value="mods" label={t("mods")} />
               <Tab value="configs" label={t("configs")} />
               <Tab value="worlds" label={t("worlds")} />
+              <Tab value="litematica" label={t("litematicaTab")} />
               <Tab value="resourcepacks" label={t("resourcepacks")} />
               <Tab value="shaders" label={t("shaders")} />
               <Tab value="datapacks" label={t("datapacks")} />
@@ -869,13 +901,6 @@ export function VersionsPage() {
 
             {tab === "worlds" && (
               <VStack gap={3}>
-                {litematicaInfo?.present && (
-                  <DismissibleBanner
-                    status="info"
-                    title={`${t("litematicaDetected")} — ${t("litematicaSchematicsPath", { path: litematicaInfo.schematics_path })}`}
-                    onDismiss={() => setLitematicaInfo({ ...litematicaInfo, present: false })}
-                  />
-                )}
                 <Card padding={0} className="euml-fade-in">
                   <HStack gap={2} style={{ padding: 12, borderBottom: "1px solid var(--color-border)" }} align="end">
                     <div style={{ flex: 1, minWidth: 140 }}>
@@ -922,8 +947,11 @@ export function VersionsPage() {
                           />
                           <Button
                             size="sm"
-                            label={t("worldSettings")}
-                            onClick={() => setEditingWorld(world.name)}
+                            label={editingWorld === world.name ? t("cancel") : t("worldSettings")}
+                            variant={editingWorld === world.name ? "secondary" : "primary"}
+                            onClick={() =>
+                              setEditingWorld(editingWorld === world.name ? null : world.name)
+                            }
                           />
                           <Button
                             size="sm"
@@ -940,10 +968,153 @@ export function VersionsPage() {
                               setContent(await api.deleteContent(selected.id, "saves", world.name));
                               setWorldsDetailed(await api.listWorldsDetailed(selected.id));
                               if (expandedWorld === world.name) setExpandedWorld(null);
+                              if (editingWorld === world.name) setEditingWorld(null);
                             }}
                           />
                         </HStack>
                       </HStack>
+                      {editingWorld === world.name && (
+                        <div
+                          ref={worldSettingsRef}
+                          style={{
+                            padding: "12px 16px 16px",
+                            background: "var(--color-surface-secondary, rgba(0,0,0,0.03))",
+                            borderBottom: "1px solid var(--color-border)",
+                          }}
+                        >
+                          {worldSettingsLoading && (
+                            <HStack gap={2} align="center">
+                              <Spinner size="sm" />
+                              <Text color="secondary">{t("loading")}</Text>
+                            </HStack>
+                          )}
+                          {worldSettingsError && !worldSettingsLoading && (
+                            <VStack gap={2}>
+                              <Text color="secondary">{worldSettingsError}</Text>
+                              <Button
+                                size="sm"
+                                label={t("retry")}
+                                onClick={() => {
+                                  const name = world.name;
+                                  setEditingWorld(null);
+                                  requestAnimationFrame(() => setEditingWorld(name));
+                                }}
+                              />
+                            </VStack>
+                          )}
+                          {worldSettings && !worldSettingsLoading && (
+                            <VStack gap={3}>
+                              <Text weight="semibold">
+                                {t("worldSettings")}: {world.name}
+                              </Text>
+                              <TextInput
+                                label={t("worldSeed")}
+                                value={worldSettings.seed}
+                                onChange={(v) => setWorldSettings({ ...worldSettings, seed: v })}
+                                description={t("worldSeedWarn")}
+                              />
+                              <HStack gap={2}>
+                                <Button
+                                  size="sm"
+                                  label={t("copySeed")}
+                                  onClick={() => navigator.clipboard.writeText(worldSettings.seed)}
+                                />
+                              </HStack>
+                              <ChunkbaseSeedMap
+                                seed={worldSettings.seed}
+                                gameVersion={selected.game_version}
+                              />
+                              <Selector
+                                label={t("difficulty")}
+                                value={String(worldSettings.difficulty)}
+                                onChange={(v) =>
+                                  setWorldSettings({ ...worldSettings, difficulty: Number(v) })
+                                }
+                                options={[
+                                  { value: "0", label: "Peaceful" },
+                                  { value: "1", label: "Easy" },
+                                  { value: "2", label: "Normal" },
+                                  { value: "3", label: "Hard" },
+                                ]}
+                              />
+                              <Selector
+                                label={t("gameMode")}
+                                value={String(worldSettings.game_type)}
+                                onChange={(v) =>
+                                  setWorldSettings({ ...worldSettings, game_type: Number(v) })
+                                }
+                                options={[
+                                  { value: "0", label: "Survival" },
+                                  { value: "1", label: "Creative" },
+                                  { value: "2", label: "Adventure" },
+                                  { value: "3", label: "Spectator" },
+                                ]}
+                              />
+                              <HStack gap={3} style={{ flexWrap: "wrap" }}>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={worldSettings.hardcore}
+                                    onChange={(e) =>
+                                      setWorldSettings({ ...worldSettings, hardcore: e.target.checked })
+                                    }
+                                  />{" "}
+                                  {t("hardcore")}
+                                </label>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={worldSettings.allow_commands}
+                                    onChange={(e) =>
+                                      setWorldSettings({
+                                        ...worldSettings,
+                                        allow_commands: e.target.checked,
+                                      })
+                                    }
+                                  />{" "}
+                                  {t("allowCommands")}
+                                </label>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={worldSettings.keep_inventory}
+                                    onChange={(e) =>
+                                      setWorldSettings({
+                                        ...worldSettings,
+                                        keep_inventory: e.target.checked,
+                                      })
+                                    }
+                                  />{" "}
+                                  keepInventory
+                                </label>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={worldSettings.do_daylight_cycle}
+                                    onChange={(e) =>
+                                      setWorldSettings({
+                                        ...worldSettings,
+                                        do_daylight_cycle: e.target.checked,
+                                      })
+                                    }
+                                  />{" "}
+                                  doDaylightCycle
+                                </label>
+                              </HStack>
+                              <Button
+                                label={t("save")}
+                                variant="primary"
+                                onClick={async () => {
+                                  setWorldSettings(
+                                    await api.saveWorldSettings(selected.id, worldSettings),
+                                  );
+                                  setStatus(t("worldSettingsSaved"));
+                                }}
+                              />
+                            </VStack>
+                          )}
+                        </div>
+                      )}
                       {expandedWorld === world.name && (
                         <VStack gap={2} style={{ padding: "8px 16px 16px", background: "var(--color-surface-secondary, rgba(0,0,0,0.03))" }}>
                           <HStack justify="between" align="center">
@@ -1011,113 +1182,149 @@ export function VersionsPage() {
                     </div>
                   )}
                 </Card>
-                {editingWorld && worldSettings && (
-                  <Card padding={4} className="euml-fade-in">
-                    <VStack gap={3}>
-                      <HStack justify="between" align="center">
-                        <Text weight="semibold">
-                          {t("worldSettings")}: {editingWorld}
-                        </Text>
-                        <Button size="sm" label={t("cancel")} onClick={() => setEditingWorld(null)} />
-                      </HStack>
-                      <TextInput
-                        label={t("worldSeed")}
-                        value={worldSettings.seed}
-                        onChange={(v) => setWorldSettings({ ...worldSettings, seed: v })}
-                        description={t("worldSeedWarn")}
+              </VStack>
+            )}
+            {tab === "litematica" && (
+              <VStack gap={3} className="euml-fade-in">
+                <Card padding={4}>
+                  <VStack gap={2}>
+                    <Text weight="semibold">{t("litematicaTab")}</Text>
+                    <Text color="secondary" type="supporting">
+                      {t("litematicaTabHint")}
+                    </Text>
+                    {!litematicaInfo?.present && (
+                      <Text color="secondary" type="supporting">
+                        {t("litematicaModMissing")}
+                      </Text>
+                    )}
+                    <HStack gap={2} style={{ flexWrap: "wrap" }}>
+                      <Button
+                        size="sm"
+                        label={t("litematicaImport")}
+                        variant="primary"
+                        onClick={async () => {
+                          if (!selected) return;
+                          const path = await open({
+                            multiple: true,
+                            filters: [
+                              {
+                                name: "Litematica / Schematic",
+                                extensions: ["litematic", "schematic", "schem", "zip"],
+                              },
+                            ],
+                          });
+                          if (!path) return;
+                          const paths = Array.isArray(path) ? path : [path];
+                          try {
+                            for (const p of paths) {
+                              await api.installContentZip(selected.id, "schematics", p);
+                            }
+                            setSchematics(await api.listSchematics(selected.id));
+                            setStatus(t("litematicaImported", { count: paths.length }));
+                          } catch (e) {
+                            setError(String(e));
+                          }
+                        }}
                       />
+                      <Button
+                        size="sm"
+                        label={t("litematicaOpenFolder")}
+                        variant="secondary"
+                        onClick={() => {
+                          if (!litematicaInfo?.schematics_path) return;
+                          void api
+                            .openContentItem(litematicaInfo.schematics_path)
+                            .catch((e) => setError(String(e)));
+                        }}
+                      />
+                    </HStack>
+                  </VStack>
+                </Card>
+                <Card padding={0}>
+                  <HStack gap={2} style={{ padding: 12, borderBottom: "1px solid var(--color-border)" }} align="end">
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <TextInput
+                        label={t("searchInstalled")}
+                        value={contentQuery}
+                        onChange={setContentQuery}
+                      />
+                    </div>
+                  </HStack>
+                  {filteredSchematics.map((item) => (
+                    <HStack
+                      key={item.path}
+                      justify="between"
+                      align="center"
+                      className="euml-list-row"
+                      gap={3}
+                    >
+                      <div
+                        className="euml-avatar"
+                        style={{ display: "grid", placeItems: "center", fontSize: 10 }}
+                      >
+                        .L
+                      </div>
+                      <Text style={{ flex: 1, minWidth: 0 }}>{item.name}</Text>
                       <HStack gap={2}>
                         <Button
                           size="sm"
-                          label={t("copySeed")}
-                          onClick={() => navigator.clipboard.writeText(worldSettings.seed)}
+                          label={t("litematicaExport")}
+                          variant="secondary"
+                          onClick={async () => {
+                            const base = item.name.includes("/")
+                              ? item.name.slice(item.name.lastIndexOf("/") + 1)
+                              : item.name;
+                            const dest = await save({
+                              defaultPath: base,
+                              filters: [
+                                {
+                                  name: "Schematic",
+                                  extensions: ["litematic", "schematic", "schem"],
+                                },
+                              ],
+                            });
+                            if (!dest) return;
+                            try {
+                              await api.exportContentFile(item.path, dest);
+                              setStatus(t("litematicaExported"));
+                            } catch (e) {
+                              setError(String(e));
+                            }
+                          }}
                         />
                         <Button
                           size="sm"
-                          label={t("openChunkbase")}
-                          variant="primary"
-                          onClick={() => {
-                            const ver = selected.game_version.replace(/\./g, "_");
-                            const url = `https://www.chunkbase.com/apps/seed-map#seed=${encodeURIComponent(worldSettings.seed)}&platform=java_${ver}`;
-                            void import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url));
+                          label={t("openItem")}
+                          variant="secondary"
+                          onClick={() => void api.openContentItem(item.path)}
+                        />
+                        <Button
+                          size="sm"
+                          label={t("delete")}
+                          variant="destructive"
+                          onClick={async () => {
+                            if (!selected) return;
+                            try {
+                              setSchematics(
+                                await api.deleteContent(selected.id, "schematics", item.name),
+                              );
+                            } catch (e) {
+                              setError(String(e));
+                            }
                           }}
                         />
                       </HStack>
-                      <Selector
-                        label={t("difficulty")}
-                        value={String(worldSettings.difficulty)}
-                        onChange={(v) => setWorldSettings({ ...worldSettings, difficulty: Number(v) })}
-                        options={[
-                          { value: "0", label: "Peaceful" },
-                          { value: "1", label: "Easy" },
-                          { value: "2", label: "Normal" },
-                          { value: "3", label: "Hard" },
-                        ]}
-                      />
-                      <Selector
-                        label={t("gameMode")}
-                        value={String(worldSettings.game_type)}
-                        onChange={(v) => setWorldSettings({ ...worldSettings, game_type: Number(v) })}
-                        options={[
-                          { value: "0", label: "Survival" },
-                          { value: "1", label: "Creative" },
-                          { value: "2", label: "Adventure" },
-                          { value: "3", label: "Spectator" },
-                        ]}
-                      />
-                      <HStack gap={3}>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={worldSettings.hardcore}
-                            onChange={(e) => setWorldSettings({ ...worldSettings, hardcore: e.target.checked })}
-                          />{" "}
-                          {t("hardcore")}
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={worldSettings.allow_commands}
-                            onChange={(e) =>
-                              setWorldSettings({ ...worldSettings, allow_commands: e.target.checked })
-                            }
-                          />{" "}
-                          {t("allowCommands")}
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={worldSettings.keep_inventory}
-                            onChange={(e) =>
-                              setWorldSettings({ ...worldSettings, keep_inventory: e.target.checked })
-                            }
-                          />{" "}
-                          keepInventory
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={worldSettings.do_daylight_cycle}
-                            onChange={(e) =>
-                              setWorldSettings({ ...worldSettings, do_daylight_cycle: e.target.checked })
-                            }
-                          />{" "}
-                          doDaylightCycle
-                        </label>
-                      </HStack>
-                      <Button
-                        label={t("save")}
-                        variant="primary"
-                        onClick={async () => {
-                          setWorldSettings(await api.saveWorldSettings(selected.id, worldSettings));
-                          setStatus(t("worldSettingsSaved"));
-                        }}
-                      />
-                    </VStack>
-                  </Card>
-                )}
+                    </HStack>
+                  ))}
+                  {filteredSchematics.length === 0 && (
+                    <div style={{ padding: 16 }}>
+                      <Text color="secondary">{t("litematicaEmpty")}</Text>
+                    </div>
+                  )}
+                </Card>
               </VStack>
             )}
+
             {tab === "resourcepacks" && contentList("resourcepacks")}
             {tab === "shaders" && contentList("shaderpacks")}
 
@@ -1279,7 +1486,7 @@ export function VersionsPage() {
                   <TextInput
                     label={t("gameVersion")}
                     value={draft.game_version}
-                    onChange={(v) => setDraft({ ...draft, game_version: normalizeMcVersion(v) })}
+                    onChange={(v) => setDraft({ ...draft, game_version: v })}
                     description={t("upgradeVersionHint")}
                   />
                   <Selector
@@ -1310,6 +1517,29 @@ export function VersionsPage() {
                         setDraft(named);
                         await refresh();
                         setStatus(t("saved"));
+                      }}
+                    />
+                    <Button
+                      label={t("detectGameVersion")}
+                      onClick={async () => {
+                        setStatus(t("detectingGameVersion"));
+                        setError(null);
+                        try {
+                          const hit = await api.detectInstanceGameVersion(draft.id, true);
+                          const inst = await api.getInstance(draft.id);
+                          setSelected(inst);
+                          setDraft(inst);
+                          await refresh();
+                          setStatus(
+                            t("detectGameVersionOk", {
+                              version: hit.gameVersion,
+                              source: hit.source,
+                            }),
+                          );
+                        } catch (e) {
+                          setError(String(e));
+                          setStatus(null);
+                        }
                       }}
                     />
                     <Button

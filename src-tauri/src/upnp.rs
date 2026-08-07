@@ -210,9 +210,10 @@ Get-NetIPAddress -AddressFamily IPv4 |
   Where-Object { $_.IPAddress -notlike '127.*' } |
   ForEach-Object { "{0}`t{1}" -f $_.InterfaceAlias, $_.IPAddress }
 "#;
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", script])
-            .output();
+        let mut ps = Command::new("powershell");
+        ps.args(["-NoProfile", "-Command", script]);
+        crate::win_cmd::hide_console(&mut ps);
+        let output = ps.output();
         if let Ok(out) = output {
             let text = decode_console_bytes(&out.stdout);
             let mut adapters = Vec::new();
@@ -264,8 +265,12 @@ pub fn public_ip(prefer: Option<&str>) -> Option<String> {
             }
         }
     }
-    // Try UPnP GetExternalIPAddress
-    if let Ok(gateway) = igd::search_gateway(Default::default()) {
+    // Try UPnP GetExternalIPAddress with a short timeout (default ~10s freezes Host).
+    let igd_opts = igd::SearchOptions {
+        timeout: Some(Duration::from_secs(2)),
+        ..Default::default()
+    };
+    if let Ok(gateway) = igd::search_gateway(igd_opts) {
         if let Ok(ip) = gateway.get_external_ip() {
             let s = ip.to_string();
             if let Ok(mut g) = PUBLIC_IP_CACHE.lock() {
@@ -303,14 +308,14 @@ pub fn public_ip(prefer: Option<&str>) -> Option<String> {
 pub fn default_gateway() -> Option<IpAddr> {
     #[cfg(windows)]
     {
-        let output = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1).NextHop",
-            ])
-            .output()
-            .ok()?;
+        let mut ps = Command::new("powershell");
+        ps.args([
+            "-NoProfile",
+            "-Command",
+            "(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1).NextHop",
+        ]);
+        crate::win_cmd::hide_console(&mut ps);
+        let output = ps.output().ok()?;
         let text = String::from_utf8_lossy(&output.stdout);
         let hop = text.trim();
         if let Ok(ip) = hop.parse::<Ipv4Addr>() {
@@ -356,10 +361,12 @@ pub fn network_info_full(
         .or_else(|| with_active(|m| m.get(&port).map(|a| a.method.clone())));
     let stored_ext = with_active(|m| m.get(&port).and_then(|a| a.external_ip.clone()));
     let actually_mapped = mapped || method.is_some();
+    // Skip WAN/public IP discovery unless the port is mapped or the caller asked
+    // for manual-forward guidance — igd::search_gateway otherwise freezes Host.
     let public = if actually_mapped || needs_manual {
         public_ip(stored_ext.as_deref())
     } else {
-        stored_ext.or_else(|| public_ip(None))
+        stored_ext
     };
     let wan_join = public.as_ref().map(|ip| format!("{ip}:{port}"));
     let (upnp_status, upnp_message) = if actually_mapped {
@@ -725,20 +732,20 @@ pub fn try_add_firewall_rule(port: u16) -> Result<(), String> {
     #[cfg(windows)]
     {
         let name = format!("Northstar Dedicated TCP {port}");
-        let status = Command::new("netsh")
-            .args([
-                "advfirewall",
-                "firewall",
-                "add",
-                "rule",
-                &format!("name={name}"),
-                "dir=in",
-                "action=allow",
-                "protocol=TCP",
-                &format!("localport={port}"),
-            ])
-            .status()
-            .map_err(|e| e.to_string())?;
+        let mut cmd = Command::new("netsh");
+        cmd.args([
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            &format!("name={name}"),
+            "dir=in",
+            "action=allow",
+            "protocol=TCP",
+            &format!("localport={port}"),
+        ]);
+        crate::win_cmd::hide_console(&mut cmd);
+        let status = cmd.status().map_err(|e| e.to_string())?;
         if status.success() {
             Ok(())
         } else {

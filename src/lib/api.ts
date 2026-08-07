@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { cached, cacheInvalidate, cacheSet } from "./cache";
+import { getSettingsSnapshot, setSettingsSnapshot } from "./settingsStore";
 import type {
   Account,
   ContentItem,
@@ -11,6 +12,7 @@ import type {
   LauncherSettings,
   LogLine,
   ModEntry,
+  InstalledModMarkers,
   ModrinthHit,
   ModrinthProjectType,
   ModUpdateResult,
@@ -31,10 +33,14 @@ import type {
   DedicatedProperties,
   DedicatedPlayerLists,
   DedicatedNetworkInfo,
+  DetectedGameVersion,
   HostLiveStats,
   HangarProject,
   HangarVersion,
   HostPluginEntry,
+  ExitBlockers,
+  TerracottaInfo,
+  TerracottaState,
 } from "./types";
 
 const INSTANCES = "instances";
@@ -98,12 +104,37 @@ export const api = {
       return folders;
     }),
   openDiskFolder: (name: string) => invoke<void>("open_disk_folder", { name }),
-  getSettings: () => cached(SETTINGS, 30_000, () => invoke<LauncherSettings>("get_settings")),
+  getSettings: () =>
+    cached(SETTINGS, 30_000, () => invoke<LauncherSettings>("get_settings")).then((s) => {
+      if (!getSettingsSnapshot()) setSettingsSnapshot(s);
+      return s;
+    }),
   /** Copy a picked image into the app wallpapers dir (asset-protocol scoped). */
   importBackgroundImage: (sourcePath: string) =>
     invoke<string>("import_background_image", { sourcePath }),
   saveSettings: (settings: LauncherSettings) =>
-    invoke<LauncherSettings>("save_settings", { settings }).then((s) => cacheSet(SETTINGS, s)),
+    invoke<LauncherSettings>("save_settings", { settings }).then((s) => {
+      // Keep layout flags from the payload we just wrote — never let a stale
+      // round-trip drop Start position / compact mode.
+      const merged: LauncherSettings = {
+        ...s,
+        launch_start_position:
+          settings.launch_start_position ?? s.launch_start_position,
+        launch_only_selected:
+          settings.launch_only_selected ?? s.launch_only_selected,
+      };
+      cacheSet(SETTINGS, merged);
+      setSettingsSnapshot(merged);
+      return merged;
+    }),
+  /** Wipe launcher settings back to defaults (keeps instances / accounts). */
+  resetSettings: () =>
+    invoke<LauncherSettings>("reset_settings").then((s) => {
+      cacheInvalidate(SETTINGS);
+      cacheSet(SETTINGS, s);
+      setSettingsSnapshot(s);
+      return s;
+    }),
 
   listAccounts: () => cached(ACCOUNTS, 15_000, () => invoke<Account[]>("list_accounts")),
   beginMsLogin: () =>
@@ -135,6 +166,11 @@ export const api = {
       cacheInvalidate(INSTANCES);
       return msg;
     }),
+  stopInstance: (id: string) => invoke<string>("stop_instance", { id }),
+  gameRunState: (id: string) =>
+    invoke<{ instanceId: string; running: boolean; pid?: number | null }>("game_run_state", {
+      id,
+    }),
 
   installLoader: (id: string) =>
     invoke<Instance>("install_loader", { id }).then((inst) => {
@@ -165,6 +201,8 @@ export const api = {
     }),
   getModrinthProject: (projectId: string, gameVersion: string, loader: string) =>
     invoke<ModrinthProjectDetails>("get_modrinth_project", { projectId, gameVersion, loader }),
+  installedModrinthMarkers: (instanceId: string) =>
+    invoke<InstalledModMarkers>("installed_modrinth_markers", { instanceId }),
   updateInstanceMods: (instanceId: string) =>
     invoke<ModUpdateResult[]>("update_instance_mods", { instanceId }),
   parseConfigFile: (relative: string, contents: string) =>
@@ -187,6 +225,11 @@ export const api = {
     invoke<Instance>("reinstall_loader", { id }).then((inst) => {
       cacheInvalidate(INSTANCES);
       return inst;
+    }),
+  detectInstanceGameVersion: (id: string, apply = false) =>
+    invoke<DetectedGameVersion>("detect_instance_game_version", { id, apply }).then((hit) => {
+      if (hit.applied) cacheInvalidate(INSTANCES);
+      return hit;
     }),
   changeInstanceVersion: (
     id: string,
@@ -227,6 +270,11 @@ export const api = {
       cacheInvalidate(INSTANCES);
       return inst;
     }),
+  installModpackFromModrinth: (versionId: string) =>
+    invoke<Instance>("install_modpack_from_modrinth", { versionId }).then((inst) => {
+      cacheInvalidate(INSTANCES);
+      return inst;
+    }),
   exportMrpack: (instanceId: string, destPath: string) =>
     invoke<string>("export_mrpack", { instanceId, destPath }),
 
@@ -260,6 +308,9 @@ export const api = {
   deleteWorldBackup: (instanceId: string, worldName: string, backupName: string) =>
     invoke<void>("delete_world_backup", { instanceId, worldName, backupName }),
   detectLitematica: (instanceId: string) => invoke<LitematicaInfo>("detect_litematica", { instanceId }),
+  listSchematics: (instanceId: string) => invoke<ContentItem[]>("list_schematics", { instanceId }),
+  exportContentFile: (srcPath: string, destPath: string) =>
+    invoke<void>("export_content_file", { srcPath, destPath }),
   listScreenshots: (instanceId: string) => invoke<ContentItem[]>("list_screenshots", { instanceId }),
   listDatapacks: (instanceId: string, worldName: string) =>
     invoke<ContentItem[]>("list_datapacks", { instanceId, worldName }),
@@ -411,6 +462,19 @@ export const api = {
     invoke<HostPluginEntry[]>("dedicated_set_plugin_enabled", { id, name, enabled }),
   dedicatedDeletePlugin: (id: string, name: string) =>
     invoke<HostPluginEntry[]>("dedicated_delete_plugin", { id, name }),
+
+  getExitBlockers: () => invoke<ExitBlockers>("get_exit_blockers"),
+  confirmExit: () => invoke<void>("confirm_exit"),
+  ackExitPrompt: () => invoke<void>("ack_exit_prompt"),
+
+  terracottaInfo: () => invoke<TerracottaInfo>("terracotta_info"),
+  terracottaInstall: () => invoke<TerracottaInfo>("terracotta_install"),
+  terracottaStart: () => invoke<TerracottaInfo>("terracotta_start"),
+  terracottaStop: () => invoke<TerracottaInfo>("terracotta_stop"),
+  terracottaState: () => invoke<TerracottaState>("terracotta_state"),
+  terracottaHost: () => invoke<TerracottaState>("terracotta_host"),
+  terracottaJoin: (room: string) => invoke<TerracottaState>("terracotta_join", { room }),
+  terracottaIdle: () => invoke<TerracottaState>("terracotta_idle"),
 };
 
 export type { ModrinthHit };

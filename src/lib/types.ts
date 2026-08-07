@@ -1,8 +1,14 @@
 export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
 export type AccountKind = "microsoft" | "offline" | "littleskin";
 export type Locale = "en" | "zh" | "de";
-export type ContentKind = "saves" | "resourcepacks" | "shaderpacks" | "datapacks" | "screenshots";
-export type ModrinthProjectType = "mod" | "resourcepack" | "shader" | "datapack";
+export type ContentKind =
+  | "saves"
+  | "resourcepacks"
+  | "shaderpacks"
+  | "datapacks"
+  | "screenshots"
+  | "schematics";
+export type ModrinthProjectType = "mod" | "modpack" | "resourcepack" | "shader" | "datapack";
 
 export interface Instance {
   id: string;
@@ -21,6 +27,14 @@ export interface Instance {
   /** Real on-disk folder name under instances root */
   folder: string | null;
   icon_path?: string | null;
+}
+
+export interface DetectedGameVersion {
+  gameVersion: string;
+  loader?: string | null;
+  loaderVersion?: string | null;
+  source: string;
+  applied: boolean;
 }
 
 export interface InstanceFolder {
@@ -60,7 +74,7 @@ export interface LauncherSettings {
   font_family?: string | null;
   /** 0.9 | 1 | 1.1 | 1.25 */
   ui_scale?: number | null;
-  /** Panel chrome opacity 0.55–1.0 (default ~0.92). No OS acrylic. */
+  /** Window / panel opacity 0.2–1.0 (default ~0.92). Lower values show the desktop through the window. */
   ui_panel_opacity?: number | null;
   /** When true, snapshot worlds before launch (wired in 1.2.0). */
   auto_backup_worlds?: boolean | null;
@@ -70,6 +84,10 @@ export interface LauncherSettings {
   reqguard_deep_validation?: boolean | null;
   /** Experimental local jar-metadata scan (off by default; unstable). */
   reqguard_local_scan?: boolean | null;
+  /** Compact Launch page: version picker + Start + override only. */
+  launch_only_selected?: boolean | null;
+  /** Where the Start button sits on Launch: `top` (default) or `bottom`. */
+  launch_start_position?: "top" | "bottom" | null;
 }
 
 export type DedicatedLoader =
@@ -206,6 +224,48 @@ export interface HostPluginEntry {
   path: string;
 }
 
+export interface ExitBlockers {
+  servers: string[];
+  terracotta: boolean;
+}
+
+export interface TerracottaInfo {
+  version: string;
+  installed: boolean;
+  running: boolean;
+  port: number | null;
+  binaryPath: string | null;
+  installDir: string;
+  supported: boolean;
+  platformClassifier: string;
+  upstreamName: string;
+  upstreamUrl: string;
+  upstreamLicense: string;
+  attribution: string;
+  licenseNote: string;
+}
+
+export interface TerracottaProfile {
+  machineId?: string | null;
+  name?: string | null;
+  vendor?: string | null;
+  kind?: string | null;
+}
+
+export interface TerracottaState {
+  phase: string;
+  index?: number | null;
+  port?: number | null;
+  room?: string | null;
+  url?: string | null;
+  difficulty?: string | null;
+  profiles: TerracottaProfile[];
+  profileIndex?: number | null;
+  exceptionType?: number | null;
+  rawState?: string | null;
+  message?: string | null;
+}
+
 export interface ModEntry {
   file_name: string;
   enabled: boolean;
@@ -273,7 +333,13 @@ export interface WorldSettings {
   do_mob_spawning: boolean;
 }
 
-export interface DownloadProgress {
+export interface DownloadProgressBytes {
+  bytesDone?: number | null;
+  bytesTotal?: number | null;
+  byteSpeed?: number | null;
+}
+
+export interface DownloadProgress extends DownloadProgressBytes {
   phase: string;
   done: number;
   total: number;
@@ -331,6 +397,41 @@ export interface VersionInfo {
   release_time: string;
 }
 
+export interface ModrinthFile {
+  url: string;
+  filename: string;
+  primary: boolean;
+  sha1?: string | null;
+}
+
+export interface ModrinthDependency {
+  project_id?: string | null;
+  version_id?: string | null;
+  /** required | optional | incompatible | embedded */
+  dependency_type: string;
+  project_title?: string | null;
+  project_slug?: string | null;
+}
+
+export interface ModrinthVersion {
+  id: string;
+  version_number: string;
+  name?: string;
+  version_type?: string;
+  loaders?: string[];
+  game_versions?: string[];
+  date_published?: string;
+  files: ModrinthFile[];
+  dependencies?: ModrinthDependency[];
+  project_id?: string;
+}
+
+export interface ModrinthGalleryImage {
+  url: string;
+  featured?: boolean;
+  title?: string | null;
+}
+
 export interface ModrinthHit {
   project_id: string;
   title: string;
@@ -338,7 +439,7 @@ export interface ModrinthHit {
   slug: string;
   icon_url?: string | null;
   categories?: string[];
-  versions: { id: string; version_number: string; files: { url: string; filename: string; primary: boolean }[] }[];
+  versions: ModrinthVersion[];
 }
 
 export interface ModrinthProjectDetails {
@@ -359,7 +460,13 @@ export interface ModrinthProjectDetails {
   discord_url?: string | null;
   mcmod_url: string;
   curseforge_url: string;
-  versions: ModrinthHit["versions"];
+  gallery: ModrinthGalleryImage[];
+  versions: ModrinthVersion[];
+}
+
+export interface InstalledModMarkers {
+  version_ids: string[];
+  filenames: string[];
 }
 
 export interface ParsedConfig {

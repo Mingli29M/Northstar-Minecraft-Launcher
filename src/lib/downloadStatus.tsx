@@ -148,60 +148,77 @@ export function DownloadStatusProvider({ children }: { children: ReactNode }) {
     void invoke("clear_console").catch(() => setConsoleLines([]));
   }, []);
 
+  const trackConsoleWindow = useCallback(async (win: WebviewWindow) => {
+    setConsoleDetached(true);
+    setConsoleOpen(false);
+    try {
+      // Do not await — once() resolves when the event fires.
+      void win.once("tauri://destroyed", () => {
+        setConsoleDetached(false);
+      });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const openConsoleWindow = useCallback(async () => {
     try {
-      await invoke("open_console_window");
-      setConsoleDetached(true);
-      setConsoleOpen(false);
-    } catch (e) {
-      // Fallback to JS API if Rust command fails
-      try {
-        const existing = await WebviewWindow.getByLabel("console");
-        if (existing) {
-          await existing.setFocus();
-          setConsoleDetached(true);
-          setConsoleOpen(false);
-          return;
-        }
-        const url = import.meta.env.DEV
-          ? `${window.location.origin}/?eumlWindow=console`
-          : "index.html?eumlWindow=console";
-        const win = new WebviewWindow("console", {
-          url,
-          title: "Northstar Console",
-          width: 860,
-          height: 520,
-          minWidth: 480,
-          minHeight: 280,
-          resizable: true,
-          focus: true,
-        });
-        win.once("tauri://created", () => {
-          setConsoleDetached(true);
-          setConsoleOpen(false);
-        });
-        win.once("tauri://destroyed", () => {
-          setConsoleDetached(false);
-        });
-        win.once("tauri://error", () => {
-          setConsoleDetached(false);
-          setConsoleOpen(true);
-          appendLocal({
-            text: `Console window error: ${String(e)}`,
-            level: "error",
-            ts: new Date().toLocaleTimeString(),
-          });
-        });
-      } catch (e2) {
+      const existing = await WebviewWindow.getByLabel("console");
+      if (existing) {
+        await existing.show();
+        await existing.setFocus();
+        await trackConsoleWindow(existing);
+        return;
+      }
+
+      // Prefer the JS WebviewWindow API so the query param (?eumlWindow=console)
+      // is reliable in both vite-dev and packaged builds.
+      const url = import.meta.env.DEV
+        ? `${window.location.origin}/?eumlWindow=console`
+        : "index.html?eumlWindow=console";
+      const win = new WebviewWindow("console", {
+        url,
+        title: "Northstar Console",
+        width: 860,
+        height: 520,
+        minWidth: 480,
+        minHeight: 280,
+        resizable: true,
+        focus: true,
+      });
+      win.once("tauri://created", () => {
+        void trackConsoleWindow(win);
+      });
+      win.once("tauri://error", (event) => {
+        setConsoleDetached(false);
         setConsoleOpen(true);
         appendLocal({
-          text: `Could not open console window: ${String(e2)}`,
+          text: `Console window error: ${String(event.payload ?? "unknown")}`,
+          level: "error",
+          ts: new Date().toLocaleTimeString(),
+        });
+      });
+    } catch (e) {
+      // Fallback to Rust command
+      try {
+        await invoke("open_console_window");
+        const win = await WebviewWindow.getByLabel("console");
+        if (win) await trackConsoleWindow(win);
+        else {
+          setConsoleDetached(true);
+          setConsoleOpen(false);
+        }
+      } catch (e2) {
+        setConsoleDetached(false);
+        setConsoleOpen(true);
+        appendLocal({
+          text: `Could not open console window: ${String(e2 ?? e)}`,
           level: "error",
           ts: new Date().toLocaleTimeString(),
         });
       }
     }
-  }, [appendLocal]);
+  }, [appendLocal, trackConsoleWindow]);
 
   const dockConsole = useCallback(async () => {
     try {

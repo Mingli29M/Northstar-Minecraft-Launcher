@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { DismissibleBanner } from "../components/DismissibleBanner";
 import { NewsPanel } from "../components/NewsPanel";
@@ -18,13 +18,48 @@ import { effectiveLoader } from "../lib/loaderDetect";
 import { useFavorites } from "../lib/favorites";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { preferredInstanceId, rememberPreferredInstance } from "../lib/preferredInstance";
+import { SETTINGS_EVENT } from "../lib/appearance";
+import { getSettingsSnapshot, subscribeSettings } from "../lib/settingsStore";
 import { favoriteId } from "../lib/types";
 import { useI18n } from "../i18n";
-import type { Account, CrashHint, GameExitAnalysis, Instance, InstanceFolder, LauncherSettings, ReqScanResult } from "../lib/types";
+import type {
+  Account,
+  CrashHint,
+  GameExitAnalysis,
+  Instance,
+  InstanceFolder,
+  LauncherSettings,
+  ReqIssue,
+  ReqScanResult,
+} from "../lib/types";
 import { useDownloadStatus } from "../lib/downloadStatus";
+
+/** Mirrors backend `issue_is_installable` — hide Install for breaks / version mismatches. */
+function isInstallableReqIssue(issue: ReqIssue): boolean {
+  if (issue.severity !== "error") return false;
+  const msg = issue.message.toLowerCase();
+  if (
+    msg.includes("breaks ") ||
+    msg.includes(", found ") ||
+    msg.includes("incompatible") ||
+    msg.includes("requires minecraft")
+  ) {
+    return false;
+  }
+  if (issue.project_id?.trim()) return true;
+  const missing = issue.missing_mod_id?.trim();
+  if (!missing) return false;
+  return (
+    msg.includes("missing") ||
+    msg.includes("depends on") ||
+    msg.includes("not installed") ||
+    msg.includes(" — install")
+  );
+}
 
 export function LaunchPage() {
   const { t } = useI18n();
+  const { pathname } = useLocation();
   const { progress, appendConsole } = useDownloadStatus();
   const { isFavorite, favoritesOf } = useFavorites();
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -42,6 +77,20 @@ export function LaunchPage() {
   const [crashes, setCrashes] = useState<CrashHint[]>([]);
   const [exitAnalysis, setExitAnalysis] = useState<GameExitAnalysis | null>(null);
   const [override, setOverride] = useState(false);
+  const [gameRunning, setGameRunning] = useState(false);
+  const [stopBusy, setStopBusy] = useState(false);
+  // Live snapshot beats local/disk races (Settings autosave vs Launch reload).
+  const liveSettings = useSyncExternalStore(
+    subscribeSettings,
+    getSettingsSnapshot,
+    getSettingsSnapshot,
+  );
+  const layout = liveSettings ?? settings;
+  const onlySelected = Boolean(layout?.launch_only_selected);
+  // Honour Settings → Start position in both full and compact Launch layouts.
+  const startAtBottom =
+    String(layout?.launch_start_position ?? "top").trim().toLowerCase() ===
+    "bottom";
 
   const busyLabel = useMemo(() => {
     if (!busy) return t("startGame");
@@ -99,27 +148,74 @@ export function LaunchPage() {
     return sections;
   }, [instances, folders, t, isFavorite]);
 
+  const loadGen = useRef(0);
+  const reload = useCallback(async () => {
+    const gen = ++loadGen.current;
+    const [list, folderList, acc, st] = await Promise.all([
+      api.listInstances(),
+      api.listFolders(),
+      api.listAccounts(),
+      api.getSettings(),
+    ]);
+    if (gen !== loadGen.current) return;
+    setInstances(list);
+    setFolders(folderList);
+    setAccounts(acc);
+    // Prefer live snapshot / in-memory layout flags when disk is still catching
+    // up to the Settings autosave debounce — otherwise Start position snaps back.
+    const snap = getSettingsSnapshot();
+    setSettings((prev) => ({
+      ...st,
+      launch_start_position:
+        snap?.launch_start_position ??
+        prev?.launch_start_position ??
+        st.launch_start_position,
+      launch_only_selected:
+        snap?.launch_only_selected ??
+        prev?.launch_only_selected ??
+        st.launch_only_selected,
+    }));
+    setSelectedId((prev) =>
+      prev && list.some((i) => i.id === prev) ? prev : preferredInstanceId(list, st),
+    );
+  }, []);
+
+  // This pane is kept mounted while other pages are visited, so an instance
+  // created elsewhere (a download, an import) is only picked up if we reload
+  // whenever the page comes back into view.
+  const visible = pathname === "/";
   useEffect(() => {
+    if (!visible) return;
     let cancelled = false;
-    (async () => {
-      const [list, folderList, acc, st] = await Promise.all([
-        api.listInstances(),
-        api.listFolders(),
-        api.listAccounts(),
-        api.getSettings(),
-      ]);
-      if (cancelled) return;
-      setInstances(list);
-      setFolders(folderList);
-      setAccounts(acc);
-      setSettings(st);
-      setSelectedId(preferredInstanceId(list, st));
-    })().catch((e) => {
+    void reload().catch((e) => {
       if (!cancelled) setError(String(e));
     });
     return () => {
       cancelled = true;
     };
+  }, [visible, reload]);
+
+  // Settings → Appearance (compact / Start position) must update this keep-alive
+  // pane immediately, not only on the next remount.
+  useEffect(() => {
+    const onSettings = (e: Event) => {
+      const detail = (e as CustomEvent<LauncherSettings>).detail;
+      if (!detail) return;
+      setSettings((prev) => {
+        if (
+          prev &&
+          prev.launch_only_selected === detail.launch_only_selected &&
+          prev.launch_start_position === detail.launch_start_position &&
+          prev.reqguard_local_scan === detail.reqguard_local_scan &&
+          prev.reqguard_deep_validation === detail.reqguard_deep_validation
+        ) {
+          return prev;
+        }
+        return detail;
+      });
+    };
+    window.addEventListener(SETTINGS_EVENT, onSettings);
+    return () => window.removeEventListener(SETTINGS_EVENT, onSettings);
   }, []);
 
   useEffect(() => {
@@ -143,26 +239,38 @@ export function LaunchPage() {
     setExitAnalysis(null);
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      setScanBusy(true);
-      api
-        .reqguardScan(selected.id)
-        .then((s) => {
-          if (!cancelled) setScan(s);
-        })
-        .catch(() => {
-          if (!cancelled) setScan(null);
-        })
-        .finally(() => {
-          if (!cancelled) setScanBusy(false);
-        });
-      api
-        .analyzeCrash(selected.id)
-        .then((c) => {
-          if (!cancelled) setCrashes(c);
-        })
-        .catch(() => {
-          if (!cancelled) setCrashes([]);
-        });
+      // Compact mode hides the ReqGuard and crash panels. When both scan modes
+      // are off in Settings, skip the work entirely — Launch is still gated by
+      // the backend check when local scan is enabled.
+      const localOn = settings?.reqguard_local_scan === true;
+      const deepOn = settings?.reqguard_deep_validation !== false;
+      if (!onlySelected && (localOn || deepOn)) {
+        setScanBusy(true);
+        api
+          .reqguardScan(selected.id)
+          .then((s) => {
+            if (!cancelled) setScan(s);
+          })
+          .catch(() => {
+            if (!cancelled) setScan(null);
+          })
+          .finally(() => {
+            if (!cancelled) setScanBusy(false);
+          });
+      } else {
+        setScan(null);
+        setScanBusy(false);
+      }
+      if (!onlySelected) {
+        api
+          .analyzeCrash(selected.id)
+          .then((c) => {
+            if (!cancelled) setCrashes(c);
+          })
+          .catch(() => {
+            if (!cancelled) setCrashes([]);
+          });
+      }
       api
         .lastGameExitAnalysis(selected.id)
         .then((analysis) => {
@@ -176,7 +284,7 @@ export function LaunchPage() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [selected]);
+  }, [selected, onlySelected, settings?.reqguard_local_scan, settings?.reqguard_deep_validation]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -235,29 +343,112 @@ export function LaunchPage() {
   async function onLaunch(instanceId?: string) {
     const id = instanceId ?? selectedId;
     const inst = instances.find((i) => i.id === id) ?? null;
-    if (!inst || !settings) return;
+    const baseSettings = getSettingsSnapshot() ?? settings;
+    if (!inst || !baseSettings || gameRunning) return;
     if (id !== selectedId) setSelectedId(id);
     setBusy(true);
     setError(null);
     setStatus(t("preparing"));
     try {
-      await api.saveSettings({ ...settings, last_instance_id: inst.id });
+      await api.saveSettings({ ...baseSettings, last_instance_id: inst.id });
       await api.prepareInstance(inst.id);
       setStatus(t("launching"));
       setStatus(await api.launchInstance(inst.id, override));
+      const run = await api.gameRunState(inst.id);
+      setGameRunning(Boolean(run.running));
       setInstances(await api.listInstances());
     } catch (e) {
       const msg = String(e);
       setError(msg);
       setStatus(null);
       appendConsole(msg, "error");
+      try {
+        const run = await api.gameRunState(inst.id);
+        setGameRunning(Boolean(run.running));
+      } catch {
+        setGameRunning(false);
+      }
     } finally {
       setBusy(false);
     }
   }
 
+  async function onStop() {
+    if (!selectedId || stopBusy || !gameRunning) return;
+    setStopBusy(true);
+    setError(null);
+    try {
+      setStatus(await api.stopInstance(selectedId));
+      setGameRunning(false);
+    } catch (e) {
+      const msg = String(e);
+      setError(msg);
+      appendConsole(msg, "error");
+    } finally {
+      setStopBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedId) {
+      setGameRunning(false);
+      return;
+    }
+    let cancelled = false;
+    void api.gameRunState(selectedId).then((s) => {
+      if (!cancelled) setGameRunning(Boolean(s.running));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<{ instanceId: string; running: boolean }>("euml:game-state", (ev) => {
+      if (ev.payload.instanceId === selectedId) {
+        setGameRunning(Boolean(ev.payload.running));
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [selectedId]);
+
+  function renderLaunchActions() {
+    return (
+      <div className="euml-launch-actions">
+        <button
+          type="button"
+          className="euml-start-btn"
+          disabled={!selected || busy || gameRunning}
+          onClick={() => void onLaunch()}
+        >
+          {busy ? (
+            <HStack gap={2} align="center" justify="center">
+              <Spinner size="sm" />
+              <span>{busyLabel}</span>
+            </HStack>
+          ) : (
+            t("startGame")
+          )}
+        </button>
+        <button
+          type="button"
+          className="euml-stop-btn"
+          disabled={!selected || !gameRunning || stopBusy}
+          onClick={() => void onStop()}
+        >
+          {stopBusy ? t("stoppingGame") : t("stopGame")}
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <HStack gap={5} align="stretch" style={{ minHeight: "100%" }} className="euml-page">
+    <HStack gap={5} align="stretch" className="euml-page" style={{ minHeight: "100%" }}>
       <VStack gap={4} style={{ flex: 1, minWidth: 0 }}>
         <HStack justify="between" align="center" gap={4}>
           <Text type="display-3">{t("launchTitle")}</Text>
@@ -277,8 +468,16 @@ export function LaunchPage() {
         </HStack>
 
         {/* PCL / HMCL style: version select + big Start */}
-        <Card padding={4} className="euml-launch-hero">
-          <VStack gap={4}>
+        <Card
+          padding={4}
+          className="euml-launch-hero"
+          style={
+            onlySelected
+              ? { flex: 1, display: "flex", flexDirection: "column" }
+              : undefined
+          }
+        >
+          <VStack gap={4} style={onlySelected ? { flex: 1, minHeight: 0 } : undefined}>
             <HStack gap={4} align="end">
               <div style={{ flex: 1, minWidth: 220 }}>
                 <Selector
@@ -319,38 +518,33 @@ export function LaunchPage() {
                 </HStack>
               )}
             </HStack>
-            <button
-              type="button"
-              className="euml-start-btn"
-              disabled={!selected || busy}
-              onClick={() => void onLaunch()}
-            >
-              {busy ? (
-                <HStack gap={2} align="center" justify="center">
-                  <Spinner size="sm" />
-                  <span>{busyLabel}</span>
-                </HStack>
-              ) : (
-                t("startGame")
-              )}
-            </button>
+            {!startAtBottom && renderLaunchActions()}
             <HStack gap={4} align="center">
               <CheckboxInput label={t("overrideReq")} value={override} onChange={setOverride} />
-              {selected && (
+              {!onlySelected && selected && (
                 <Link to={`/versions/${selected.id}`}>
                   <Text color="accent">{t("versionSettings")}</Text>
                 </Link>
               )}
-              <Link to="/news">
-                <Text color="accent">{t("navNews")}</Text>
-              </Link>
+              {!onlySelected && (
+                <Link to="/news">
+                  <Text color="accent">{t("navNews")}</Text>
+                </Link>
+              )}
             </HStack>
+            {startAtBottom && onlySelected && (
+              <div style={{ marginTop: "auto", width: "100%" }}>{renderLaunchActions()}</div>
+            )}
           </VStack>
         </Card>
 
-        <Card padding={0} style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {!onlySelected && (
+        <Card
+          padding={0}
+          style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}
+        >
           <div style={{ flex: 1, overflow: "auto" }}>
-            {instances.length === 0 && (
+            {grouped.length === 0 && (
               <div style={{ padding: 16 }}>
                 <Text color="secondary">{t("noVersions")}</Text>
               </div>
@@ -396,6 +590,12 @@ export function LaunchPage() {
             ))}
           </div>
         </Card>
+        )}
+
+        {/* Bottom Start: always after the version list (full) / hero (compact). */}
+        {startAtBottom && !onlySelected && (
+          <div className="euml-launch-actions-dock">{renderLaunchActions()}</div>
+        )}
 
         {status && <DismissibleBanner status="info" title={status} onDismiss={() => setStatus(null)} />}
         {error && <DismissibleBanner status="error" title={error} onDismiss={() => setError(null)} />}
@@ -408,6 +608,7 @@ export function LaunchPage() {
         )}
       </VStack>
 
+      {!onlySelected && (
       <VStack gap={3} style={{ width: 320, flexShrink: 0 }}>
         <Card padding={3}>
           <HStack justify="between" align="center" style={{ marginBottom: 8 }}>
@@ -454,7 +655,7 @@ export function LaunchPage() {
           {selected && scan && scan.issues.length === 0 && (scan.local_scan || scan.deep_scan) && (
             <Text color="accent">{t("reqguardOk", { count: scan.mod_count })}</Text>
           )}
-          {selected && scan && scan.issues.some((i) => i.severity === "error") && (
+          {selected && scan && scan.issues.some(isInstallableReqIssue) && (
             <Button
               label={t("installAllMissing")}
               size="sm"
@@ -470,7 +671,7 @@ export function LaunchPage() {
                 {issue.source ? `[${issue.source}] ` : ""}
                 {issue.message}
               </Text>
-              {(issue.project_id || issue.missing_mod_id) && selected && (
+              {selected && isInstallableReqIssue(issue) && (
                 <Button
                   label={`${t("installMissing")}: ${issue.missing_mod_id || issue.project_id}`}
                   size="sm"
@@ -505,6 +706,7 @@ export function LaunchPage() {
           <NewsPanel compact />
         </Card>
       </VStack>
+      )}
     </HStack>
   );
 }

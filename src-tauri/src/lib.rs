@@ -1,3 +1,4 @@
+mod app_handle;
 mod auth;
 mod avatars;
 mod config_editor;
@@ -24,15 +25,21 @@ mod news;
 mod paths;
 mod reqguard;
 mod servers;
+mod terracotta;
 mod upnp;
+mod win_cmd;
 mod world_settings;
 
 use models::{Instance, LauncherSettings, ModEntry};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Trim WebView features the launcher UI does not need (WebGL/WebAudio/page cache).
 /// Expected wins land mainly in WebKitWebProcess RSS on Linux.
 fn tune_webview_for_launcher(app: &tauri::App) {
+    // Close any leftover external windows from older builds (sync create deadlocked on Windows).
+    if let Some(stuck) = app.get_webview_window("chunkbase") {
+        let _ = stuck.destroy();
+    }
     let Some(win) = app.get_webview_window("main") else {
         return;
     };
@@ -129,6 +136,13 @@ fn get_settings() -> Result<LauncherSettings, String> {
 
 #[tauri::command]
 fn save_settings(settings: LauncherSettings) -> Result<LauncherSettings, String> {
+    paths::save_settings(&settings)?;
+    Ok(settings)
+}
+
+#[tauri::command]
+fn reset_settings() -> Result<LauncherSettings, String> {
+    let settings = LauncherSettings::default();
     paths::save_settings(&settings)?;
     Ok(settings)
 }
@@ -269,6 +283,18 @@ async fn launch_instance(
 }
 
 #[tauri::command]
+async fn stop_instance(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || launch::stop_instance(app, id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn game_run_state(id: String) -> launch::GameRunState {
+    launch::game_run_state(&id)
+}
+
+#[tauri::command]
 fn install_loader(id: String) -> Result<Instance, String> {
     loaders::install_loader(id)
 }
@@ -313,6 +339,15 @@ async fn get_modrinth_project(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn installed_modrinth_markers(
+    instance_id: String,
+) -> Result<mods_platform::InstalledModMarkers, String> {
+    tokio::task::spawn_blocking(move || mods_platform::installed_modrinth_markers(instance_id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -399,6 +434,14 @@ fn reinstall_loader(id: String) -> Result<models::Instance, String> {
 }
 
 #[tauri::command]
+fn detect_instance_game_version(
+    id: String,
+    apply: Option<bool>,
+) -> Result<instances::DetectedGameVersion, String> {
+    instances::detect_instance_game_version(&id, apply.unwrap_or(false))
+}
+
+#[tauri::command]
 fn change_instance_version(
     id: String,
     game_version: String,
@@ -409,29 +452,55 @@ fn change_instance_version(
     let raw_gv = game_version.clone();
     inst.loader = models::LoaderKind::from_str_loose(&loader);
     inst.loader = models::infer_loader(&inst.name, &raw_gv, inst.loader.clone());
-    inst.game_version = models::normalize_game_version(&raw_gv);
+    let normalized = models::normalize_game_version(&raw_gv);
+    if !models::is_plausible_game_version(&normalized) {
+        return Err(format!(
+            "Invalid game version '{raw_gv}'. Use a Minecraft version like 1.21.1, not a pack or instance name."
+        ));
+    }
+    inst.game_version = normalized;
     inst.loader_version = loader_version;
     instances::save_instance(&inst)?;
     if inst.loader != models::LoaderKind::Vanilla {
-        let _ = loaders::install_loader(inst.id.clone());
+        loaders::install_loader(inst.id.clone())?;
         inst = instances::get_instance(&id)?;
     }
     Ok(inst)
 }
 
 #[tauri::command]
-fn install_mod(instance_id: String, project_id: String, version_id: String) -> Result<ModEntry, String> {
-    mods_platform::install_mod(instance_id, project_id, version_id)
+async fn install_mod(
+    app: tauri::AppHandle,
+    instance_id: String,
+    project_id: String,
+    version_id: String,
+) -> Result<ModEntry, String> {
+    tokio::task::spawn_blocking(move || {
+        mods_platform::install_mod(Some(&app), instance_id, project_id, version_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn install_content_from_modrinth(
+async fn install_content_from_modrinth(
+    app: tauri::AppHandle,
     instance_id: String,
     version_id: String,
     kind: String,
     world_name: Option<String>,
 ) -> Result<models::ContentItem, String> {
-    mods_platform::install_content_from_modrinth(instance_id, version_id, kind, world_name)
+    tokio::task::spawn_blocking(move || {
+        mods_platform::install_content_from_modrinth(
+            Some(&app),
+            instance_id,
+            version_id,
+            kind,
+            world_name,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -450,8 +519,22 @@ fn uninstall_mod(instance_id: String, file_name: String) -> Result<Vec<ModEntry>
 }
 
 #[tauri::command]
-fn import_mrpack(path: String) -> Result<Instance, String> {
-    mods_platform::import_mrpack(path)
+async fn import_mrpack(app: tauri::AppHandle, path: String) -> Result<Instance, String> {
+    tokio::task::spawn_blocking(move || mods_platform::import_mrpack(Some(&app), path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn install_modpack_from_modrinth(
+    app: tauri::AppHandle,
+    version_id: String,
+) -> Result<Instance, String> {
+    tokio::task::spawn_blocking(move || {
+        mods_platform::install_modpack_from_modrinth(Some(&app), version_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -560,6 +643,16 @@ fn delete_world_backup(
 #[tauri::command]
 fn detect_litematica(instance_id: String) -> Result<models::LitematicaInfo, String> {
     content::detect_litematica(instance_id)
+}
+
+#[tauri::command]
+fn list_schematics(instance_id: String) -> Result<Vec<models::ContentItem>, String> {
+    content::list_schematics(instance_id)
+}
+
+#[tauri::command]
+fn export_content_file(src_path: String, dest_path: String) -> Result<(), String> {
+    content::export_content_file(src_path, dest_path)
 }
 
 #[tauri::command]
@@ -686,10 +779,12 @@ fn open_console_window(app: tauri::AppHandle) -> Result<(), String> {
         let _ = existing.set_focus();
         return Ok(());
     }
+    // Leading `/` keeps the query string intact under both the asset protocol
+    // and the vite devUrl (`http://localhost:1420/?eumlWindow=console`).
     WebviewWindowBuilder::new(
         &app,
         "console",
-        WebviewUrl::App("index.html?eumlWindow=console".into()),
+        WebviewUrl::App("/?eumlWindow=console".into()),
     )
     .title("Northstar Console")
     .inner_size(860.0, 520.0)
@@ -710,8 +805,10 @@ fn close_console_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn list_dedicated() -> Result<Vec<dedicated::HostServer>, String> {
-    dedicated::list_dedicated()
+async fn list_dedicated() -> Result<Vec<dedicated::HostServer>, String> {
+    tokio::task::spawn_blocking(dedicated::list_dedicated)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -801,13 +898,17 @@ async fn stop_dedicated(
 }
 
 #[tauri::command]
-fn dedicated_status(id: String) -> Result<host_process::DedicatedStatus, String> {
-    host_process::dedicated_status(id)
+async fn dedicated_status(id: String) -> Result<host_process::DedicatedStatus, String> {
+    tokio::task::spawn_blocking(move || host_process::dedicated_status(id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn dedicated_send_command(id: String, command: String) -> Result<(), String> {
-    host_process::dedicated_send_command(id, command)
+async fn dedicated_send_command(id: String, command: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || host_process::dedicated_send_command(id, command))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -965,6 +1066,137 @@ fn dedicated_delete_plugin(id: String, name: String) -> Result<Vec<hangar::HostP
     host_files::delete_plugin(id, name)
 }
 
+/// What is still running when the user tries to close the launcher.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExitBlockers {
+    pub servers: Vec<String>,
+    pub terracotta: bool,
+}
+
+impl ExitBlockers {
+    fn is_empty(&self) -> bool {
+        self.servers.is_empty() && !self.terracotta
+    }
+}
+
+fn exit_blockers() -> ExitBlockers {
+    let running = host_process::running_ids();
+    let names = dedicated::list_dedicated().unwrap_or_default();
+    let servers = running
+        .into_iter()
+        .map(|id| {
+            names
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| s.name.clone())
+                .unwrap_or(id)
+        })
+        .collect();
+    ExitBlockers {
+        servers,
+        terracotta: terracotta::is_running(),
+    }
+}
+
+#[tauri::command]
+fn get_exit_blockers() -> ExitBlockers {
+    exit_blockers()
+}
+
+/// Set once the UI confirms it rendered the exit prompt, which proves the
+/// webview can be trusted to ask the user.
+static EXIT_PROMPT_SHOWN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static CLOSE_ATTEMPTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+#[tauri::command]
+fn ack_exit_prompt() {
+    EXIT_PROMPT_SHOWN.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Escape hatch for a webview that cannot draw the confirmation: after a few
+/// close attempts with no acknowledgement from the UI, stop vetoing so the
+/// window can never become impossible to close. Cancelling the prompt normally
+/// does not count, because acknowledging it clears this path for good.
+fn close_veto_exhausted() -> bool {
+    use std::sync::atomic::Ordering;
+    if EXIT_PROMPT_SHOWN.load(Ordering::SeqCst) {
+        return false;
+    }
+    CLOSE_ATTEMPTS.fetch_add(1, Ordering::SeqCst) >= 2
+}
+
+/// Shut down anything the exit guard flagged, then close the app.
+#[tauri::command]
+async fn confirm_exit(app: tauri::AppHandle) -> Result<(), String> {
+    let worker = app.clone();
+    tokio::task::spawn_blocking(move || {
+        host_process::stop_all(Some(&worker));
+        let _ = terracotta::terracotta_stop(Some(&worker));
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+async fn terracotta_info() -> Result<terracotta::TerracottaInfo, String> {
+    tokio::task::spawn_blocking(terracotta::terracotta_info)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn terracotta_install(app: tauri::AppHandle) -> Result<terracotta::TerracottaInfo, String> {
+    tokio::task::spawn_blocking(move || terracotta::terracotta_install(Some(&app)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn terracotta_start(app: tauri::AppHandle) -> Result<terracotta::TerracottaInfo, String> {
+    tokio::task::spawn_blocking(move || terracotta::terracotta_start(Some(&app)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn terracotta_stop(app: tauri::AppHandle) -> Result<terracotta::TerracottaInfo, String> {
+    tokio::task::spawn_blocking(move || terracotta::terracotta_stop(Some(&app)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn terracotta_state() -> Result<terracotta::TerracottaState, String> {
+    tokio::task::spawn_blocking(terracotta::terracotta_state)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn terracotta_host() -> Result<terracotta::TerracottaState, String> {
+    tokio::task::spawn_blocking(terracotta::terracotta_host)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn terracotta_join(room: String) -> Result<terracotta::TerracottaState, String> {
+    tokio::task::spawn_blocking(move || terracotta::terracotta_join(room))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn terracotta_idle() -> Result<terracotta::TerracottaState, String> {
+    tokio::task::spawn_blocking(terracotta::terracotta_idle)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Launcher UI does not need accelerated WebKit compositing. On Linux (esp.
@@ -986,8 +1218,37 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            app_handle::set(app.handle().clone());
             tune_webview_for_launcher(app);
+            // A sidecar can outlive a crashed session; reattaching keeps the
+            // Terracotta tab honest and lets Stop reach it.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || terracotta::adopt_existing(Some(&handle)));
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if !matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                return;
+            }
+            // Only the main window closes the app; the console window is free.
+            if window.label() != "main" {
+                return;
+            }
+            let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+                return;
+            };
+            let blockers = exit_blockers();
+            if blockers.is_empty() {
+                return;
+            }
+            if close_veto_exhausted() {
+                host_process::stop_all(None);
+                let _ = terracotta::terracotta_stop(None);
+                return;
+            }
+            // Hand the decision to the UI, which can name what is running.
+            api.prevent_close();
+            let _ = window.emit("euml:exit-blocked", &blockers);
         })
         .invoke_handler(tauri::generate_handler![
             list_instances,
@@ -1004,6 +1265,7 @@ pub fn run() {
             open_disk_folder,
             get_settings,
             save_settings,
+            reset_settings,
             import_background_image,
             list_accounts,
             begin_ms_login,
@@ -1022,10 +1284,13 @@ pub fn run() {
             download_temurin,
             prepare_instance,
             launch_instance,
+            stop_instance,
+            game_run_state,
             install_loader,
             search_mods,
             search_content,
             get_modrinth_project,
+            installed_modrinth_markers,
             update_instance_mods,
             parse_config_file,
             apply_config_fields,
@@ -1035,12 +1300,14 @@ pub fn run() {
             set_instance_icon,
             reinstall_loader,
             change_instance_version,
+            detect_instance_game_version,
             install_mod,
             install_content_from_modrinth,
             list_instance_mods,
             set_mod_enabled,
             uninstall_mod,
             import_mrpack,
+            install_modpack_from_modrinth,
             export_mrpack,
             reqguard_scan,
             reqguard_resolve,
@@ -1057,6 +1324,8 @@ pub fn run() {
             restore_world_backup,
             delete_world_backup,
             detect_litematica,
+            list_schematics,
+            export_content_file,
             list_screenshots,
             list_datapacks,
             install_datapack,
@@ -1110,6 +1379,17 @@ pub fn run() {
             dedicated_list_plugins,
             dedicated_set_plugin_enabled,
             dedicated_delete_plugin,
+            get_exit_blockers,
+            confirm_exit,
+            ack_exit_prompt,
+            terracotta_info,
+            terracotta_install,
+            terracotta_start,
+            terracotta_stop,
+            terracotta_state,
+            terracotta_host,
+            terracotta_join,
+            terracotta_idle,
             get_world_settings,
             save_world_settings,
             list_instance_configs,

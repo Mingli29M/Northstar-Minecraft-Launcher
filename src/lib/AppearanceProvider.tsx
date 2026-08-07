@@ -27,35 +27,21 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       applyAppearance(s);
     };
 
-    const applyFromSettings = () => {
-      api
-        .getSettings()
-        .then((s: LauncherSettings) => apply(s))
-        .catch(() => {
-          /* browser / missing backend */
-        });
-    };
+    api
+      .getSettings()
+      .then((s: LauncherSettings) => apply(s))
+      .catch(() => {
+        /* browser / missing backend */
+      });
 
-    applyFromSettings();
-
-    // Theme roots may mount after first paint — re-apply a few times.
+    // Theme host may mount a tick later — a few quiet retries, then stop.
+    // Do NOT observe the whole DOM: paintShellBackground writes inline styles
+    // and would re-enter applyAppearance forever (UI freeze / "not loading").
     const boot = window.setInterval(() => {
       tries += 1;
       if (latest.current) applyAppearance(latest.current);
-      else applyFromSettings();
-      if (tries >= 8) window.clearInterval(boot);
-    }, 250);
-
-    // When Astryx injects theme scope nodes, re-apply vars onto them.
-    const mo = new MutationObserver(() => {
-      if (latest.current) applyAppearance(latest.current);
-    });
-    mo.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["class", "data-astryx-theme"],
-    });
+      if (tries >= 4) window.clearInterval(boot);
+    }, 400);
 
     const onCustom = (e: Event) => {
       apply((e as CustomEvent<AppearanceDetail>).detail);
@@ -64,7 +50,6 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       window.clearInterval(boot);
-      mo.disconnect();
       window.removeEventListener(APPEARANCE_EVENT, onCustom);
     };
   }, []);

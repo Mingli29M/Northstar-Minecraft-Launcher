@@ -6,13 +6,140 @@ use crate::models::{GameExitAnalysis, LoaderKind};
 use crate::paths::{meta_dir, minecraft_dir};
 use crate::reqguard;
 use chrono::Utc;
+use serde::Serialize;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
 use tauri::{AppHandle, Emitter};
+
+/// Instance id → Java/Minecraft PID for live games we spawned.
+static RUNNING_GAMES: LazyLock<Mutex<HashMap<String, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Instance ids the user asked to stop (so monitors don't report a crash).
+static STOP_REQUESTED: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameRunState {
+    pub instance_id: String,
+    pub running: bool,
+    pub pid: Option<u32>,
+}
+
+fn emit_game_state(app: Option<&AppHandle>, instance_id: &str, running: bool, pid: Option<u32>) {
+    let state = GameRunState {
+        instance_id: instance_id.to_string(),
+        running,
+        pid,
+    };
+    if let Some(app) = app {
+        let _ = app.emit("euml:game-state", &state);
+    }
+}
+
+fn register_running(app: Option<&AppHandle>, instance_id: &str, pid: u32) {
+    if let Ok(mut g) = RUNNING_GAMES.lock() {
+        g.insert(instance_id.to_string(), pid);
+    }
+    emit_game_state(app, instance_id, true, Some(pid));
+}
+
+fn unregister_running(app: Option<&AppHandle>, instance_id: &str) {
+    if let Ok(mut g) = RUNNING_GAMES.lock() {
+        g.remove(instance_id);
+    }
+    emit_game_state(app, instance_id, false, None);
+}
+
+fn take_stop_requested(instance_id: &str) -> bool {
+    STOP_REQUESTED
+        .lock()
+        .map(|mut s| s.remove(instance_id))
+        .unwrap_or(false)
+}
+
+pub fn is_instance_running(instance_id: &str) -> bool {
+    RUNNING_GAMES
+        .lock()
+        .map(|g| g.contains_key(instance_id))
+        .unwrap_or(false)
+}
+
+pub fn running_instance_ids() -> Vec<String> {
+    RUNNING_GAMES
+        .lock()
+        .map(|g| g.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+pub fn game_run_state(instance_id: &str) -> GameRunState {
+    let pid = RUNNING_GAMES
+        .lock()
+        .ok()
+        .and_then(|g| g.get(instance_id).copied());
+    GameRunState {
+        instance_id: instance_id.to_string(),
+        running: pid.is_some(),
+        pid,
+    }
+}
+
+fn kill_pid(pid: u32) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("taskkill");
+        cmd.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        crate::win_cmd::hide_console(&mut cmd);
+        let status = cmd
+            .status()
+            .map_err(|e| format!("Failed to stop game (pid {pid}): {e}"))?;
+        if status.success() {
+            return Ok(());
+        }
+        // Already gone is fine.
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let status = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()
+            .map_err(|e| format!("Failed to stop game (pid {pid}): {e}"))?;
+        if !status.success() {
+            let _ = Command::new("kill")
+                .args(["-KILL", &pid.to_string()])
+                .status();
+        }
+        Ok(())
+    }
+}
+
+/// Stop a running Minecraft process for this instance (if we spawned it).
+pub fn stop_instance(app: AppHandle, id: String) -> Result<String, String> {
+    let pid = RUNNING_GAMES
+        .lock()
+        .ok()
+        .and_then(|g| g.get(&id).copied())
+        .ok_or_else(|| "No running game for this instance.".to_string())?;
+    if let Ok(mut s) = STOP_REQUESTED.lock() {
+        s.insert(id.clone());
+    }
+    kill_pid(pid)?;
+    // Monitor thread clears RUNNING_GAMES when the child exits; do a best-effort
+    // unregister so the Stop button disables immediately.
+    unregister_running(Some(&app), &id);
+    crate::console_log::append(
+        Some(&app),
+        format!("Stopping Minecraft (pid {pid})…"),
+        "info",
+    );
+    Ok(format!("Stopping Minecraft (pid {pid})"))
+}
 
 pub fn list_game_versions() -> Result<Vec<String>, String> {
     Ok(list_game_versions_detailed()?
@@ -114,7 +241,18 @@ pub fn prepare_instance(app: AppHandle, id: String) -> Result<String, String> {
 }
 
 fn prepare_instance_inner(app: &AppHandle, id: &str) -> Result<String, String> {
-    let inst = get_instance(id)?;
+    let mut inst = get_instance(id)?;
+    let normalized = crate::models::normalize_game_version(&inst.game_version);
+    if !crate::models::is_plausible_game_version(&normalized) {
+        return Err(format!(
+            "Instance \"{}\" has an invalid Minecraft version \"{}\". Open Version settings and set a real version (e.g. 1.21.1) — pack names cannot be downloaded from Mojang.",
+            inst.name, inst.game_version
+        ));
+    }
+    if normalized != inst.game_version {
+        inst.game_version = normalized;
+        crate::instances::save_instance(&inst)?;
+    }
     let meta = meta_dir()?;
     let versions_dir = meta.join("versions").join(&inst.game_version);
     fs::create_dir_all(&versions_dir).map_err(|e| e.to_string())?;
@@ -130,6 +268,7 @@ fn prepare_instance_inner(app: &AppHandle, id: &str) -> Result<String, String> {
             bytes_per_sec: None,
             message: format!("Preparing {}", inst.game_version),
             active: true,
+            ..Default::default()
         },
     );
 
@@ -202,6 +341,7 @@ fn prepare_instance_inner(app: &AppHandle, id: &str) -> Result<String, String> {
             bytes_per_sec: None,
             message: "Assets: fetching index…".into(),
             active: true,
+            ..Default::default()
         },
     );
     if let Some(asset_index) = version.get("assetIndex") {
@@ -253,6 +393,7 @@ fn prepare_instance_inner(app: &AppHandle, id: &str) -> Result<String, String> {
                         jobs.len()
                     ),
                     active: true,
+                    ..Default::default()
                 },
             );
             let (ok, fail) = download_many_progress(
@@ -282,6 +423,7 @@ fn prepare_instance_inner(app: &AppHandle, id: &str) -> Result<String, String> {
             bytes_per_sec: None,
             message: summary.clone(),
             active: false,
+            ..Default::default()
         },
     );
     Ok(summary)
@@ -305,12 +447,30 @@ fn instance_dir_profile(inst: &crate::models::Instance) -> Result<PathBuf, Strin
         .join("version.json"))
 }
 
+fn profile_inherits_mismatch(path: &std::path::Path, game_version: &str) -> bool {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&raw) else {
+        return false;
+    };
+    let inherits = v
+        .get("inheritsFrom")
+        .and_then(|x| x.as_str())
+        .map(crate::models::normalize_game_version)
+        .unwrap_or_default();
+    !inherits.is_empty() && inherits != game_version
+}
+
 pub fn launch_instance(
     app: AppHandle,
     id: String,
     req_override: bool,
     server: Option<String>,
 ) -> Result<String, String> {
+    if is_instance_running(&id) {
+        return Err("Game already running for this instance. Press Stop first.".into());
+    }
     let mut inst = get_instance(&id)?;
 
     if !req_override {
@@ -368,12 +528,37 @@ pub fn launch_instance(
     let mc = minecraft_dir(&id)?;
     let meta = meta_dir()?;
 
-    // Ensure Fabric/Quilt/Forge profile exists, then prepare libraries/assets.
+    // Forge/NeoForge: heal `1.21` → `1.21.1` from mod metadata before trusting a profile.
+    if matches!(inst.loader, LoaderKind::Forge | LoaderKind::NeoForge) {
+        if let Ok(Some(_)) = crate::instances::refine_game_version_from_files(&id) {
+            inst = get_instance(&id)?;
+        }
+    }
+
+    // Ensure Fabric/Quilt/Forge/NeoForge profile exists (rebuild empty / mismatched ones).
     if !matches!(inst.loader, LoaderKind::Vanilla) {
         let profile_path = instance_dir_profile(&inst)?;
-        if !profile_path.exists() {
-            crate::loaders::install_loader(id.clone())?;
-            inst = get_instance(&id)?;
+        let stub = !profile_path.exists() || crate::loaders::is_stub_profile(&profile_path);
+        let mismatched = profile_inherits_mismatch(&profile_path, &inst.game_version);
+        if stub || mismatched {
+            if mismatched {
+                let _ = fs::remove_file(&profile_path);
+            }
+            // Heal from on-disk mods/indexes first, then install a real loader profile.
+            match crate::instances::detect_instance_game_version(&id, true) {
+                Ok(_) => inst = get_instance(&id)?,
+                Err(_) => {
+                    crate::loaders::install_loader(id.clone())?;
+                    inst = get_instance(&id)?;
+                }
+            }
+            let profile_path = instance_dir_profile(&inst)?;
+            if crate::loaders::is_stub_profile(&profile_path) {
+                return Err(
+                    "Loader profile is incomplete. Open Versions → Advanced → Reinstall loader (needs network)."
+                        .into(),
+                );
+            }
         }
     }
 
@@ -552,6 +737,7 @@ pub fn launch_instance(
             args.push(a);
         }
         let mut skip_next = false;
+        let mut keep_next = false; // value for -p / --module-path (must not be treated as -cp)
         for a in from_json_jvm {
             if skip_next {
                 skip_next = false;
@@ -561,18 +747,30 @@ pub fn launch_instance(
             // Skip -cp / -classpath and the following value; we append a clean pair later.
             if raw == "-cp" || raw == "-classpath" {
                 skip_next = true;
+                keep_next = false;
                 continue;
             }
             if raw.contains("${classpath}") {
+                keep_next = false;
                 continue;
             }
             let s = normalize_jvm_arg(&substitute_vars(&a, &vars), &cp);
             if s.is_empty() {
+                keep_next = false;
+                continue;
+            }
+            if keep_next {
+                // NeoForge/Forge module path: many jars joined with ;/: — keep it.
+                args.push(s);
+                keep_next = false;
                 continue;
             }
             // Expanded classpath value without a preceding -cp (common Mojang template pair)
             if s == cp || looks_like_classpath(&s) {
                 continue;
+            }
+            if raw == "-p" || raw == "--module-path" {
+                keep_next = true;
             }
             args.push(s);
         }
@@ -680,6 +878,9 @@ pub fn launch_instance(
             msg
         })?;
 
+    let pid = child.id();
+    register_running(Some(&app), &id, pid);
+
     // Tee stdout/stderr to files + console
     let stdout_path = launch_log.join("euml-last-stdout.txt");
     let stderr_path = launch_log.join("euml-last-stderr.txt");
@@ -698,6 +899,13 @@ pub fn launch_instance(
     std::thread::sleep(std::time::Duration::from_millis(1800));
     match child.try_wait() {
         Ok(Some(status)) => {
+            let user_stopped = take_stop_requested(&id);
+            unregister_running(Some(&app), &id);
+            if user_stopped {
+                let msg = format!("Stopped {}", inst.name);
+                crate::console_log::append(Some(&app), msg.clone(), "info");
+                return Ok(msg);
+            }
             let tail = fs::read_to_string(&stderr_path)
                 .unwrap_or_default()
                 .lines()
@@ -739,7 +947,7 @@ pub fn launch_instance(
         Ok(None) => {
             crate::console_log::append(
                 Some(&app),
-                format!("Game process running (pid {:?})", child.id()),
+                format!("Game process running (pid {pid})"),
                 "info",
             );
         }
@@ -762,6 +970,8 @@ pub fn launch_instance(
         let waited = child.wait();
         // Give stdout/stderr tee workers time to flush their final lines.
         std::thread::sleep(std::time::Duration::from_millis(350));
+        let user_stopped = take_stop_requested(&monitor_id);
+        unregister_running(Some(&monitor_app), &monitor_id);
 
         if !post_command.is_empty() {
             #[cfg(target_os = "windows")]
@@ -780,6 +990,15 @@ pub fn launch_instance(
             Ok(status) => (status.success(), status.code()),
             Err(_) => (false, None),
         };
+        if user_stopped {
+            let _ = fs::remove_file(monitor_logs.join("euml-last-exit-analysis.json"));
+            crate::console_log::append(
+                Some(&monitor_app),
+                "Minecraft stopped by user.",
+                "info",
+            );
+            return;
+        }
         if success {
             let _ = fs::remove_file(monitor_logs.join("euml-last-exit-analysis.json"));
             crate::console_log::append(

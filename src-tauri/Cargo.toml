@@ -1,6 +1,6 @@
 [package]
 name = "euml"
-version = "1.2.3"
+version = "1.3.0"
 description = "Northstar Minecraft Launcher"
 authors = ["Northstar"]
 edition = "2021"

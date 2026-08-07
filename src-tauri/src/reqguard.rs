@@ -81,12 +81,49 @@ fn scan_instance_with_mode(
     let mods_dir = minecraft_dir(instance_id)?.join("mods");
     fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
 
+    // Both toggles off → do not open jars or hit the network.
+    if !local_scan && !deep_scan {
+        let mod_count = fs::read_dir(&mods_dir)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .filter(|e| {
+                        let n = e.file_name().to_string_lossy().to_string();
+                        n.ends_with(".jar") && !n.ends_with(".disabled")
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
+        return Ok(ReqScanResult {
+            issues: Vec::new(),
+            mod_count,
+            scanned_at: Utc::now().to_rfc3339(),
+            local_scan: false,
+            deep_scan: false,
+            duration_ms: started.elapsed().as_millis() as u64,
+        });
+    }
+
     let mut metas = Vec::new();
     let mut issues = Vec::new();
     for entry in fs::read_dir(&mods_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = entry.file_name().to_string_lossy().to_string();
         if !name.ends_with(".jar") || name.ends_with(".disabled") {
+            continue;
+        }
+        // Local scan owns jar-metadata parsing. Deep-only mode uses filename
+        // stubs so Modrinth hashing still sees every root jar without unzipping.
+        if !local_scan {
+            metas.push(filename_fallback_meta(&name).unwrap_or_else(|| ModMeta {
+                id: jar_stem_id(&name),
+                version: "*".into(),
+                file: name.clone(),
+                provides: Vec::new(),
+                depends: HashMap::new(),
+                recommends: HashMap::new(),
+                breaks: HashMap::new(),
+                conflicts: HashMap::new(),
+            }));
             continue;
         }
         match parse_jar(&entry.path(), &name) {
@@ -519,11 +556,12 @@ fn merge_modrinth_sot(
                 &project_slugs,
                 present_ids,
             );
+            let label = modrinth_dep_label(&project_id, &project_slugs);
             if dep_type == "incompatible" && dependency_present {
                 issues.push(mk_issue(
                     IssueSeverity::Error,
                     mod_id.clone(),
-                    format!("{mod_id} is incompatible with Modrinth project `{project_id}` (SoT)"),
+                    format!("{mod_id} is incompatible with `{label}` (Modrinth SoT)"),
                     None,
                     Some(file.clone()),
                     "modrinth",
@@ -540,11 +578,14 @@ fn merge_modrinth_sot(
             if !seen_required.insert(project_id.clone()) {
                 continue;
             }
+            // missing_mod_id = human slug for UI/search; project_id = install target.
+            // Never put the raw 8-char Modrinth id in missing_mod_id — that broke
+            // "Install all missing" when the UI/search path treated it as a mod id.
             issues.push(mk_issue(
                 IssueSeverity::Error,
                 mod_id.clone(),
-                format!("{mod_id} requires Modrinth dependency `{project_id}` (not installed)"),
-                Some(project_id.clone()),
+                format!("{mod_id} requires `{label}` (Modrinth dependency not installed)"),
+                Some(label),
                 Some(file.clone()),
                 "modrinth",
                 Some(project_id),
@@ -588,13 +629,61 @@ fn modrinth_project_is_present(
         .unwrap_or(false)
 }
 
+fn modrinth_dep_label(project_id: &str, project_slugs: &HashMap<String, String>) -> String {
+    project_slugs
+        .get(project_id)
+        .cloned()
+        .or_else(|| known_mod_id_for_project(project_id).map(|s| s.to_string()))
+        .unwrap_or_else(|| project_id.to_string())
+}
+
 fn known_mod_id_for_project(project_id: &str) -> Option<&'static str> {
     match project_id {
         // Fabric API. This fallback also works if project metadata lookup is
         // temporarily unavailable.
         "P7dR8mSH" => Some("fabric-api"),
+        "yv4Y2L8J" => Some("cloth-config"),
+        "haUm0bLp" => Some("architectury-api"),
+        "AANobbMI" => Some("sodium"),
+        "YL57xq9U" => Some("iris"),
+        "uXXizFIs" => Some("ferrite-core"),
+        "gvQqBUqZ" => Some("lithium"),
+        "fQEb0iXm" => Some("lazydfu"),
+        "NcUtCpym" => Some("jade"),
+        "9s6osm5g" => Some("cloth-config"),
+        "Wq5SjeWM" => Some("modmenu"),
         _ => None,
     }
+}
+
+/// True when "Install missing" can actually fetch something from Modrinth.
+fn issue_is_installable(issue: &ReqIssue) -> bool {
+    if !matches!(issue.severity, IssueSeverity::Error) {
+        return false;
+    }
+    let msg = issue.message.to_ascii_lowercase();
+    if msg.contains("breaks ")
+        || msg.contains(", found ")
+        || msg.contains("incompatible")
+        || msg.contains("requires minecraft")
+    {
+        return false;
+    }
+    if issue
+        .project_id
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty())
+    {
+        return true;
+    }
+    issue
+        .missing_mod_id
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty())
+        && (msg.contains("missing")
+            || msg.contains("depends on")
+            || msg.contains("not installed")
+            || msg.contains(" — install"))
 }
 
 fn jar_stem_id(file_name: &str) -> String {
@@ -1210,26 +1299,60 @@ pub fn resolve_missing(
     missing_mod_id: String,
     project_id: Option<String>,
 ) -> Result<ReqScanResult, String> {
+    // Heal pack-name / truncated versions (1.21 → 1.21.1) before Modrinth lookup.
+    let _ = crate::instances::refine_game_version_from_files(&instance_id);
     let inst = get_instance(&instance_id)?;
     let loader = inst.loader.as_str();
-    let target = project_id
+    let game_version = crate::models::normalize_game_version(&inst.game_version);
+    let game_version = if crate::models::is_plausible_game_version(&game_version) {
+        game_version
+    } else {
+        inst.game_version.clone()
+    };
+
+    // Install target: real Modrinth project id when present. Never require the
+    // UI-facing missing_mod_id (slug) to also look like a project id.
+    let direct = project_id
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or(missing_mod_id.trim())
-        .to_string();
+        .map(|s| s.to_string());
+    let search_name = missing_mod_id.trim().to_string();
+
+    if let Some(target) = direct.clone() {
+        match install_project_with_deps(
+            crate::app_handle::get(),
+            &instance_id,
+            &target,
+            &game_version,
+            loader,
+            0,
+        ) {
+            Ok(_) => return scan_configured(&instance_id),
+            Err(e) => return Err(e),
+        }
+    }
+
+    let target = search_name.clone();
     if target.is_empty() {
         return Err("No Modrinth project or mod id to install".into());
     }
 
     // Prefer direct Modrinth project id / slug install over fuzzy title search.
     if looks_like_modrinth_project_id(&target) || looks_like_modrinth_slug(&target) {
-        match install_project_with_deps(&instance_id, &target, &inst.game_version, loader, 0) {
+        match install_project_with_deps(
+            crate::app_handle::get(),
+            &instance_id,
+            &target,
+            &game_version,
+            loader,
+            0,
+        ) {
             Ok(_) => return scan_configured(&instance_id),
             Err(e) => {
                 // Hard-fail for real project ids so the UI can show the error.
                 // Slug/mod-id refs may still resolve via search below.
-                if looks_like_modrinth_project_id(&target) || project_id.is_some() {
+                if looks_like_modrinth_project_id(&target) {
                     return Err(e);
                 }
             }
@@ -1237,34 +1360,35 @@ pub fn resolve_missing(
     }
 
     let hits = search_mods(
-        missing_mod_id.clone(),
-        inst.game_version.clone(),
+        search_name.clone(),
+        game_version.clone(),
         loader.to_string(),
         None,
     )?;
     let hit = hits
         .into_iter()
         .find(|h| {
-            h.slug == missing_mod_id
-                || h.project_id == missing_mod_id
-                || h.title.eq_ignore_ascii_case(&missing_mod_id)
+            h.slug == search_name
+                || h.project_id == search_name
+                || h.title.eq_ignore_ascii_case(&search_name)
         })
         .or_else(|| {
             search_mods(
-                missing_mod_id.clone(),
-                inst.game_version.clone(),
+                search_name.clone(),
+                game_version.clone(),
                 loader.to_string(),
                 None,
             )
             .ok()
             .and_then(|mut v| v.drain(..).next())
         })
-        .ok_or_else(|| format!("Could not find `{missing_mod_id}` on Modrinth for this instance"))?;
+        .ok_or_else(|| format!("Could not find `{search_name}` on Modrinth for this instance"))?;
 
     install_project_with_deps(
+        crate::app_handle::get(),
         &instance_id,
         &hit.project_id,
-        &inst.game_version,
+        &game_version,
         loader,
         0,
     )?;
@@ -1273,34 +1397,45 @@ pub fn resolve_missing(
 
 /// Install all missing required deps reported by the configured scan.
 pub fn resolve_all_missing(instance_id: String) -> Result<ReqScanResult, String> {
+    let _ = crate::instances::refine_game_version_from_files(&instance_id);
     let scan = scan_configured(&instance_id)?;
     let mut targets: Vec<(Option<String>, String)> = scan
         .issues
         .iter()
-        .filter(|i| matches!(i.severity, IssueSeverity::Error))
+        .filter(|i| issue_is_installable(i))
         .filter_map(|i| {
             let missing = i
                 .missing_mod_id
                 .clone()
                 .or_else(|| i.project_id.clone())?;
+            // Prefer project_id for install; keep slug/label only for errors/UI.
             Some((i.project_id.clone(), missing))
         })
         .collect();
-    targets.sort_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then_with(|| a.1.cmp(&b.1))
+    // Deduplicate by Modrinth project id when known, else by missing label.
+    let mut seen = HashSet::new();
+    targets.retain(|(pid, missing)| {
+        let key = pid
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| missing.clone());
+        seen.insert(key)
     });
-    targets.dedup();
+    targets.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
     if targets.is_empty() {
-        return Ok(scan);
+        return Err(
+            "No installable missing dependencies (version conflicts / breaks cannot be auto-installed)."
+                .into(),
+        );
     }
 
     let mut errors = Vec::new();
     let mut ok = 0usize;
     for (project_id, missing) in targets {
-        match resolve_missing(instance_id.clone(), missing.clone(), project_id) {
+        let label = missing.clone();
+        match resolve_missing(instance_id.clone(), missing, project_id) {
             Ok(_) => ok += 1,
-            Err(e) => errors.push(format!("{missing}: {e}")),
+            Err(e) => errors.push(format!("{label}: {e}")),
         }
     }
     if ok == 0 {

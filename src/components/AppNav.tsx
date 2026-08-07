@@ -1,7 +1,17 @@
 import { memo } from "react";
 import { SideNav, SideNavHeading, SideNavItem, SideNavSection } from "@astryxdesign/core/SideNav";
 import { Text } from "@astryxdesign/core/Text";
-import { Rocket, Download, Newspaper, Boxes, Server, HardDrive, Users, Settings } from "lucide-react";
+import {
+  Rocket,
+  Download,
+  Newspaper,
+  Boxes,
+  Server,
+  HardDrive,
+  Network,
+  Users,
+  Settings,
+} from "lucide-react";
 
 type Props = {
   appName: string;
@@ -12,6 +22,7 @@ type Props = {
     versions: string;
     servers: string;
     host: string;
+    terracotta: string;
     accounts: string;
     settings: string;
   };
@@ -24,6 +35,7 @@ function navKey(pathname: string): string {
   if (pathname.startsWith("/versions")) return "versions";
   if (pathname.startsWith("/servers")) return "servers";
   if (pathname.startsWith("/host")) return "host";
+  if (pathname.startsWith("/terracotta")) return "terracotta";
   if (pathname.startsWith("/accounts")) return "accounts";
   if (pathname.startsWith("/settings")) return "settings";
   return "launch";
@@ -59,6 +71,12 @@ function AppNavInner({ appName, labels, pathname }: Props) {
           href="/host"
           icon={HardDrive}
           isSelected={key === "host"}
+        />
+        <SideNavItem
+          label={labels.terracotta}
+          href="/terracotta"
+          icon={Network}
+          isSelected={key === "terracotta"}
         />
         <SideNavItem
           label={labels.accounts}

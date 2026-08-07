@@ -47,9 +47,75 @@ fn content_dir(instance_id: &str, kind: &str) -> Result<PathBuf, String> {
         "shaderpacks" | "shader" | "shaders" => "shaderpacks",
         "datapacks" | "datapack" => "datapacks",
         "screenshots" => "screenshots",
+        "schematics" | "litematica" | "litematics" => "schematics",
         other => other,
     };
     Ok(minecraft_dir(instance_id)?.join(kind))
+}
+
+fn is_schematic_file(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".litematic")
+        || lower.ends_with(".schematic")
+        || lower.ends_with(".schem")
+        || lower.ends_with(".nbt")
+}
+
+/// List Litematica / schematic files under `schematics/` (one level of subfolders).
+pub fn list_schematics(instance_id: String) -> Result<Vec<ContentItem>, String> {
+    let dir = content_dir(&instance_id, "schematics")?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        if path.is_file() {
+            if is_schematic_file(&name) {
+                out.push(ContentItem {
+                    name,
+                    path: path.to_string_lossy().to_string(),
+                    kind: "schematics".into(),
+                    icon_path: None,
+                });
+            }
+            continue;
+        }
+        if path.is_dir() {
+            for child in fs::read_dir(&path).map_err(|e| e.to_string())? {
+                let child = child.map_err(|e| e.to_string())?;
+                let child_path = child.path();
+                let child_name = child.file_name().to_string_lossy().to_string();
+                if child_path.is_file() && is_schematic_file(&child_name) {
+                    out.push(ContentItem {
+                        name: format!("{name}/{child_name}"),
+                        path: child_path.to_string_lossy().to_string(),
+                        kind: "schematics".into(),
+                        icon_path: None,
+                    });
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+/// Copy a schematic (or any content file) to a user-chosen destination path.
+pub fn export_content_file(src_path: String, dest_path: String) -> Result<(), String> {
+    let src = PathBuf::from(&src_path);
+    if !src.is_file() {
+        return Err(format!("Not a file: {src_path}"));
+    }
+    let dest = PathBuf::from(&dest_path);
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub fn install_content_zip(
@@ -69,11 +135,25 @@ pub fn install_content_zip(
         .to_string_lossy()
         .to_string();
 
+    let kind_n = normalize_kind(&kind);
+    let list_after = |instance_id: String| -> Result<Vec<ContentItem>, String> {
+        if kind_n == "schematics" {
+            list_schematics(instance_id)
+        } else {
+            list_content(instance_id, kind_n.clone())
+        }
+    };
+
+    // Schematics must stay files under schematics/ — never extract world/pack trees here.
+    if kind_n == "schematics" {
+        return install_schematic_file(instance_id, &src, &dest_dir);
+    }
+
     // Folders (e.g. resource pack folder) — copy tree
     if src.is_dir() {
         let dest = unique_path(dest_dir.join(&file_name));
         copy_dir(&src, &dest)?;
-        return list_content(instance_id, normalize_kind(&kind));
+        return list_after(instance_id);
     }
 
     let lower = file_name.to_lowercase();
@@ -82,13 +162,74 @@ pub fn install_content_zip(
         let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("pack");
         let dest = unique_path(dest_dir.join(stem));
         extract_zip(&src, &dest)?;
-        return list_content(instance_id, normalize_kind(&kind));
+        return list_after(instance_id);
     }
 
-    // Loose files (zip resource packs kept as .zip are valid for Minecraft)
+    // Loose files (.litematic, resource packs as .zip, etc.)
     let dest = unique_path(dest_dir.join(&file_name));
     fs::copy(&src, &dest).map_err(|e| e.to_string())?;
-    list_content(instance_id, normalize_kind(&kind))
+    list_after(instance_id)
+}
+
+/// Import only schematic files (never world folders / pack trees).
+fn install_schematic_file(
+    instance_id: String,
+    src: &Path,
+    dest_dir: &Path,
+) -> Result<Vec<ContentItem>, String> {
+    if src.is_dir() {
+        return Err(
+            "Select a .litematic / .schematic / .schem file (not a world folder). Use the Worlds tab for saves."
+                .into(),
+        );
+    }
+    let file_name = src
+        .file_name()
+        .ok_or("Invalid path")?
+        .to_string_lossy()
+        .to_string();
+    let lower = file_name.to_lowercase();
+
+    if is_schematic_file(&file_name) {
+        let dest = unique_path(dest_dir.join(&file_name));
+        fs::copy(src, &dest).map_err(|e| e.to_string())?;
+        return list_schematics(instance_id);
+    }
+
+    if lower.ends_with(".zip") {
+        let mut archive =
+            ZipArchive::new(fs::File::open(src).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        let mut imported = 0usize;
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+            if file.is_dir() {
+                continue;
+            }
+            let Some(name) = file.enclosed_name().map(|p| p.to_path_buf()) else {
+                continue;
+            };
+            let base = name
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if !is_schematic_file(&base) {
+                continue;
+            }
+            let dest = unique_path(dest_dir.join(&base));
+            let mut out = fs::File::create(&dest).map_err(|e| e.to_string())?;
+            std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
+            imported += 1;
+        }
+        if imported == 0 {
+            return Err(
+                "No .litematic / .schematic / .schem files found in that zip. World saves belong in the Worlds tab."
+                    .into(),
+            );
+        }
+        return list_schematics(instance_id);
+    }
+
+    Err("Unsupported schematic file. Use .litematic, .schematic, .schem, or a zip of those.".into())
 }
 
 fn normalize_kind(kind: &str) -> String {
@@ -97,12 +238,21 @@ fn normalize_kind(kind: &str) -> String {
         "resourcepack" => "resourcepacks".into(),
         "shader" | "shaders" => "shaderpacks".into(),
         "datapack" => "datapacks".into(),
+        "litematica" | "litematics" => "schematics".into(),
         other => other.to_string(),
     }
 }
 
 pub fn delete_content(instance_id: String, kind: String, name: String) -> Result<Vec<ContentItem>, String> {
-    let path = content_dir(&instance_id, &kind)?.join(&name);
+    let kind_n = normalize_kind(&kind);
+    let mut path = content_dir(&instance_id, &kind_n)?;
+    // Support nested names from list_schematics (`folder/file.litematic`).
+    for part in name.split(['/', '\\']) {
+        if part.is_empty() || part == "." || part == ".." {
+            return Err(format!("Invalid name: {name}"));
+        }
+        path.push(part);
+    }
     if path.is_dir() {
         fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
     } else if path.exists() {
@@ -110,7 +260,10 @@ pub fn delete_content(instance_id: String, kind: String, name: String) -> Result
     } else {
         return Err(format!("Not found: {name}"));
     }
-    list_content(instance_id, normalize_kind(&kind))
+    if kind_n == "schematics" {
+        return list_schematics(instance_id);
+    }
+    list_content(instance_id, kind_n)
 }
 
 pub fn open_content_item(path: String) -> Result<(), String> {
@@ -120,6 +273,9 @@ pub fn open_content_item(path: String) -> Result<(), String> {
     } else {
         p
     };
+    if !target.exists() {
+        fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+    }
     open::that(target).map_err(|e| e.to_string())
 }
 
@@ -451,6 +607,8 @@ pub fn detect_litematica(instance_id: String) -> Result<LitematicaInfo, String> 
             }
         }
     }
+    // Always ensure the folder exists so Import / Open folder work without the mod.
+    let _ = fs::create_dir_all(&schematics_path);
     Ok(LitematicaInfo {
         present,
         schematics_path: schematics_path.to_string_lossy().to_string(),

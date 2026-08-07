@@ -25,7 +25,7 @@ fn find_java_for_runtime_cached(id: &str, runtime: &std::path::Path) -> Option<u
             }
         }
     }
-    match find_java_for_runtime(runtime) {
+    match find_java_for_runtime_id(runtime, Some(id)) {
         Some(pid) => {
             if let Ok(mut guard) = ORPHAN_MISS.lock() {
                 *guard = None;
@@ -45,10 +45,10 @@ fn find_java_for_runtime_cached(id: &str, runtime: &std::path::Path) -> Option<u
 fn pid_listening_on_port(port: u16) -> Option<u32> {
     #[cfg(windows)]
     {
-        let output = Command::new("netstat")
-            .args(["-ano"])
-            .output()
-            .ok()?;
+        let mut cmd = Command::new("netstat");
+        cmd.args(["-ano"]);
+        crate::win_cmd::hide_console(&mut cmd);
+        let output = cmd.output().ok()?;
         let text = String::from_utf8_lossy(&output.stdout);
         let needle = format!(":{port}");
         for line in text.lines() {
@@ -90,10 +90,10 @@ fn describe_port_holder(pid: u32) -> String {
         let script = format!(
             "(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").CommandLine"
         );
-        if let Ok(out) = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &script])
-            .output()
-        {
+        let mut ps = Command::new("powershell");
+        ps.args(["-NoProfile", "-Command", &script]);
+        crate::win_cmd::hide_console(&mut ps);
+        if let Ok(out) = ps.output() {
             let cmd = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !cmd.is_empty() {
                 if let Some(other) = dedicated::list_dedicated().ok().and_then(|list| {
@@ -161,6 +161,21 @@ where
         *guard = Some(HashMap::new());
     }
     f(guard.as_mut().unwrap())
+}
+
+/// Ids of dedicated servers this session still has running. Used by the exit
+/// guard so closing the launcher cannot silently orphan a live server.
+pub fn running_ids() -> Vec<String> {
+    with_map(|m| {
+        m.retain(|_, rs| rs.child.is_some() || process_alive(rs.pid));
+        m.keys().cloned().collect()
+    })
+}
+
+pub fn stop_all(app: Option<&AppHandle>) {
+    for id in running_ids() {
+        stop_if_running(app, &id);
+    }
 }
 
 fn resolve_java_for_host(server: &dedicated::HostServer) -> Result<String, String> {
@@ -233,28 +248,44 @@ fn kill_pid(pid: u32) -> Result<(), String> {
     }
 }
 
-/// Find a Java process whose command line references this server runtime (orphan recovery).
+/// Find a Java process tied to this dedicated runtime (orphan recovery).
+/// Matches CommandLine, ExecutablePath, or WorkingDirectory against the runtime
+/// path / server id — Forge `@args` launches often omit the absolute path.
 fn find_java_for_runtime(runtime: &std::path::Path) -> Option<u32> {
+    find_java_for_runtime_id(runtime, None)
+}
+
+fn find_java_for_runtime_id(runtime: &std::path::Path, server_id: Option<&str>) -> Option<u32> {
     #[cfg(windows)]
     {
         let needle = runtime.to_string_lossy().replace('/', "\\").to_lowercase();
-        if needle.is_empty() {
+        let id_needle = server_id.map(|s| s.to_lowercase()).unwrap_or_default();
+        if needle.is_empty() && id_needle.is_empty() {
             return None;
         }
-        let script = format!(
-            "Get-CimInstance Win32_Process -Filter \"Name='java.exe'\" | ForEach-Object {{ \"$($_.ProcessId)|$($_.CommandLine)\" }}"
-        );
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &script])
-            .output()
-            .ok()?;
+        let script = r#"
+Get-CimInstance Win32_Process -Filter "Name = 'java.exe' OR Name = 'javaw.exe'" |
+  ForEach-Object { "$($_.ProcessId)|$($_.CommandLine)|$($_.ExecutablePath)" }
+"#;
+        let mut ps = Command::new("powershell");
+        ps.args(["-NoProfile", "-Command", script]);
+        crate::win_cmd::hide_console(&mut ps);
+        let output = ps.output().ok()?;
         let text = String::from_utf8_lossy(&output.stdout);
         for line in text.lines() {
-            let Some((pid_s, cmd)) = line.split_once('|') else {
+            let parts: Vec<&str> = line.splitn(4, '|').collect();
+            if parts.len() < 2 {
                 continue;
-            };
-            if cmd.to_lowercase().contains(&needle) {
-                if let Ok(pid) = pid_s.trim().parse::<u32>() {
+            }
+            let pid_s = parts[0].trim();
+            let hay = parts[1..].join("|").to_lowercase();
+            let matched = (!needle.is_empty() && hay.contains(&needle))
+                || (!id_needle.is_empty()
+                    && (hay.contains(&id_needle)
+                        || hay.contains(&format!("dedicated\\{id_needle}"))
+                        || hay.contains(&format!("dedicated/{id_needle}"))));
+            if matched {
+                if let Ok(pid) = pid_s.parse::<u32>() {
                     if process_alive(pid) {
                         return Some(pid);
                     }
@@ -265,7 +296,7 @@ fn find_java_for_runtime(runtime: &std::path::Path) -> Option<u32> {
     }
     #[cfg(not(windows))]
     {
-        let _ = runtime;
+        let _ = (runtime, server_id);
         None
     }
 }
@@ -320,65 +351,82 @@ fn read_pid_file(id: &str) -> Option<u32> {
 }
 
 pub fn dedicated_status(id: String) -> Result<DedicatedStatus, String> {
-    let mut server = dedicated::get_dedicated(&id)?;
-    Ok(with_map(|m| {
-        reap(m);
-        if let Some(rs) = m.get(&id) {
-            return DedicatedStatus {
-                id: id.clone(),
-                running: true,
-                pid: Some(rs.pid),
-                upnp_mapped: rs.upnp_mapped,
-            };
-        }
+    let server = dedicated::get_dedicated(&id)?;
 
-        // Recover after app reload: host.json → pid file → scan Java cmdline
-        let recovered = server
+    // Fast path: in-memory map (do not run PowerShell under this lock).
+    let tracked = with_map(|m| {
+        reap(m);
+        m.get(&id).map(|rs| DedicatedStatus {
+            id: id.clone(),
+            running: true,
+            pid: Some(rs.pid),
+            upnp_mapped: rs.upnp_mapped,
+        })
+    });
+    if let Some(status) = tracked {
+        return Ok(status);
+    }
+
+    // Recover after app reload / false Stopped: persisted PID → pid file →
+    // port LISTENING → orphan Java scan. Port ownership is authoritative for
+    // Host servers (each config owns its TCP port).
+    let recovered = server
+        .running_pid
+        .filter(|p| process_alive(*p))
+        .or_else(|| read_pid_file(&id))
+        .or_else(|| {
+            pid_listening_on_port(server.port).and_then(|holder| {
+                if process_alive(holder) {
+                    Some(holder)
+                } else {
+                    None
+                }
+            })
+        })
+        .or_else(|| {
+            dedicated_runtime(&id)
+                .ok()
+                .and_then(|rt| find_java_for_runtime_cached(&id, &rt))
+        });
+
+    if let Some(pid) = recovered {
+        persist_pid(&id, pid);
+        with_map(|m| {
+            m.entry(id.clone()).or_insert(RunningServer {
+                child: None,
+                stdin: None,
+                pid,
+                upnp_mapped: false,
+                port: server.port,
+            });
+        });
+        return Ok(DedicatedStatus {
+            id,
+            running: true,
+            pid: Some(pid),
+            upnp_mapped: false,
+        });
+    }
+
+    // Soft miss: keep a persisted PID if the process is still alive so the next
+    // poll can recover. Only clear when we are sure nothing is listening.
+    if server.running_pid.is_some() {
+        let still = server
             .running_pid
             .filter(|p| process_alive(*p))
-            .or_else(|| read_pid_file(&id))
-            .or_else(|| {
-                dedicated_runtime(&id)
-                    .ok()
-                    .and_then(|rt| find_java_for_runtime_cached(&id, &rt))
-            });
+            .is_some()
+            || pid_listening_on_port(server.port).is_some();
+        if !still {
+            clear_persisted_pid(&id);
+        }
+    }
 
-        if let Some(pid) = recovered {
-            if server.running_pid != Some(pid) {
-                let _ = dedicated::set_running_pid(&id, Some(pid));
-                server.running_pid = Some(pid);
-            }
-            if let Ok(runtime) = dedicated_runtime(&id) {
-                let _ = fs::write(runtime.join("euml-host.pid"), pid.to_string());
-            }
-            m.insert(
-                id.clone(),
-                RunningServer {
-                    child: None,
-                    stdin: None,
-                    pid,
-                    upnp_mapped: false,
-                    port: server.port,
-                },
-            );
-            return DedicatedStatus {
-                id,
-                running: true,
-                pid: Some(pid),
-                upnp_mapped: false,
-            };
-        }
-
-        if server.running_pid.is_some() {
-            let _ = dedicated::set_running_pid(&id, None);
-        }
-        DedicatedStatus {
-            id,
-            running: false,
-            pid: None,
-            upnp_mapped: false,
-        }
-    }))
+    Ok(DedicatedStatus {
+        id,
+        running: false,
+        pid: None,
+        upnp_mapped: false,
+    })
 }
 
 fn set_upnp_mapped(id: &str, mapped: bool) {
@@ -571,7 +619,8 @@ pub fn start_dedicated(app: AppHandle, id: String) -> Result<DedicatedStatus, St
         "server",
     );
 
-    // Prefer breakaway so tauri:dev reloads don't kill the server via Job Object
+    // Prefer breakaway so tauri:dev reloads don't kill the server via Job Object.
+    // CREATE_NO_WINDOW hides the java.exe console that otherwise flashes/stays open.
     let mut child = {
         #[cfg(windows)]
         {
@@ -583,7 +632,9 @@ pub fn start_dedicated(app: AppHandle, id: String) -> Result<DedicatedStatus, St
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
+                .creation_flags(crate::win_cmd::with_no_window(
+                    CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB,
+                ));
             // Re-apply args from `cmd` by rebuilding — simplest: try flags on a clone path
             // Rebuild args the same way:
             match &launch {
@@ -618,7 +669,11 @@ pub fn start_dedicated(app: AppHandle, id: String) -> Result<DedicatedStatus, St
             }
             match breakaway.spawn() {
                 Ok(c) => c,
-                Err(_) => cmd.spawn().map_err(|e| format!("Failed to spawn server: {e}"))?,
+                Err(_) => {
+                    crate::win_cmd::hide_console(&mut cmd);
+                    cmd.spawn()
+                        .map_err(|e| format!("Failed to spawn server: {e}"))?
+                }
             }
         }
         #[cfg(not(windows))]
@@ -951,10 +1006,10 @@ fn apply_affinity(pid: u32, mask: u64, app: &AppHandle, id: &str) {
         let script = format!(
             "try {{ (Get-Process -Id {pid}).ProcessorAffinity = {mask}; 'ok' }} catch {{ $_.Exception.Message }}"
         );
-        match Command::new("powershell")
-            .args(["-NoProfile", "-Command", &script])
-            .output()
-        {
+        let mut ps = Command::new("powershell");
+        ps.args(["-NoProfile", "-Command", &script]);
+        crate::win_cmd::hide_console(&mut ps);
+        match ps.output() {
             Ok(out) => {
                 let text = String::from_utf8_lossy(&out.stdout);
                 let err = String::from_utf8_lossy(&out.stderr);
