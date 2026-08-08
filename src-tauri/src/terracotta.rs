@@ -201,6 +201,9 @@ fn binary_is_intact(path: &Path, expected: &str) -> bool {
 pub struct TerracottaInfo {
     pub version: String,
     pub installed: bool,
+    /// macOS only: `/Applications/terracotta.app` + LaunchAgent are present.
+    /// Always true on other platforms.
+    pub macos_helper_installed: bool,
     pub running: bool,
     pub port: Option<u16>,
     pub binary_path: Option<String>,
@@ -289,16 +292,23 @@ fn expected_exe_name(classifier: &str) -> String {
     }
 }
 
-fn find_binary(root: &Path, classifier: &str) -> Option<PathBuf> {
-    let want = expected_exe_name(classifier);
+fn find_named_file(root: &Path, want: &str) -> Option<PathBuf> {
     for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
             continue;
         }
         let name = entry.file_name().to_string_lossy();
-        if name.eq_ignore_ascii_case(&want) {
+        if name.eq_ignore_ascii_case(want) {
             return Some(entry.path().to_path_buf());
         }
+    }
+    None
+}
+
+fn find_binary(root: &Path, classifier: &str) -> Option<PathBuf> {
+    let want = expected_exe_name(classifier);
+    if let Some(path) = find_named_file(root, &want) {
+        return Some(path);
     }
     // Fallback: any terracotta executable in the tree.
     for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
@@ -311,6 +321,120 @@ fn find_binary(root: &Path, classifier: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Official macOS packages ship a `.pkg` that registers `/Applications/terracotta.app`
+/// plus a LaunchAgent daemon. Without that helper, LAN world scanning fails
+/// (same requirement as HMCL's MacOSProvider).
+#[cfg(target_os = "macos")]
+fn macos_pkg_name(classifier: &str) -> String {
+    format!("terracotta-{VERSION}-{classifier}.pkg")
+}
+
+fn macos_system_helper_installed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        Path::new("/Applications/terracotta.app").is_dir()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+/// Run the unmodified Terracotta `.pkg` through the system installer (admin prompt).
+#[cfg(target_os = "macos")]
+fn install_macos_system_pkg(
+    root: &Path,
+    classifier: &str,
+    app: Option<&AppHandle>,
+) -> Result<(), String> {
+    let pkg_name = macos_pkg_name(classifier);
+    let pkg_src = find_named_file(root, &pkg_name).ok_or_else(|| {
+        format!(
+            "Terracotta package is missing {pkg_name}. Reinstall the official unmodified archive."
+        )
+    })?;
+
+    // Stage under Application Support with a short ASCII path — osascript is
+    // picky about paths under /tmp and nested spaces (same approach as HMCL).
+    let staging_dir = app_root()?.join("terracotta").join("macos-pkg-staging");
+    force_remove_dir_all(&staging_dir)?;
+    fs::create_dir_all(&staging_dir).map_err(|e| e.to_string())?;
+    let pkg_dst = staging_dir.join(&pkg_name);
+    fs::copy(&pkg_src, &pkg_dst).map_err(|e| format!("Could not stage Terracotta .pkg: {e}"))?;
+
+    console_log::append(
+        app,
+        "[terracotta] Installing macOS system helper via installer (password prompt)…",
+        "info",
+    );
+
+    let pkg_path = pkg_dst.to_string_lossy().replace('\'', "'\\''");
+    let prompt =
+        "Northstar needs to install Terracotta’s system helper so it can detect Minecraft LAN worlds.";
+    let script = format!(
+        "do shell script \"installer -pkg '{pkg_path}' -target /\" with prompt \"{prompt}\" with administrator privileges"
+    );
+
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("Failed to run macOS installer helper (osascript): {e}"))?;
+
+    let _ = force_remove_dir_all(&staging_dir);
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = [stderr.trim(), stdout.trim()]
+            .into_iter()
+            .find(|s| !s.is_empty())
+            .unwrap_or("cancelled or installer failed");
+        return Err(format!(
+            "macOS Terracotta helper install failed ({detail}). \
+             LAN detection requires installing Terracotta.app; click Install again and approve the password prompt."
+        ));
+    }
+
+    if !macos_system_helper_installed() {
+        return Err(
+            "installer finished but /Applications/terracotta.app is missing. \
+             Try Install again, or install the .pkg manually from the Terracotta release."
+                .into(),
+        );
+    }
+
+    console_log::append(
+        app,
+        "[terracotta] macOS system helper ready at /Applications/terracotta.app",
+        "info",
+    );
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_macos_system_pkg(
+    _root: &Path,
+    _classifier: &str,
+    _app: Option<&AppHandle>,
+) -> Result<(), String> {
+    Ok(())
+}
+
+fn ensure_macos_helper_ready() -> Result<(), String> {
+    if macos_system_helper_installed() {
+        return Ok(());
+    }
+    Err(
+        "Terracotta’s macOS system helper is not installed. Click Install \
+         (macOS will ask for your password) so LAN worlds can be detected."
+            .into(),
+    )
 }
 
 fn attribution() -> String {
@@ -335,11 +459,16 @@ pub fn terracotta_info() -> Result<TerracottaInfo, String> {
         (Some(_), None) => true,
         (None, _) => false,
     };
+    let macos_helper = macos_system_helper_installed();
+    // On macOS both the extracted binary *and* the system .app helper are
+    // required — without the helper, host-scanning never sees Open-to-LAN worlds.
+    let installed = verified && macos_helper;
     let running = with_runtime(|rt| rt.as_ref().map(|r| (true, Some(r.port))))
         .unwrap_or((false, None));
     Ok(TerracottaInfo {
         version: VERSION.into(),
-        installed: verified,
+        installed,
+        macos_helper_installed: macos_helper,
         running: running.0,
         port: running.1,
         binary_path: binary.map(|p| p.to_string_lossy().to_string()),
@@ -533,6 +662,10 @@ pub fn terracotta_install(app: Option<&AppHandle>) -> Result<TerracottaInfo, Str
         perms.set_mode(0o755);
         fs::set_permissions(&bin, perms).map_err(|e| e.to_string())?;
     }
+
+    // macOS: the portable binary alone cannot scan LAN worlds. Register the
+    // official Terracotta.app + LaunchAgent via the unmodified .pkg (admin prompt).
+    install_macos_system_pkg(&root, classifier, app)?;
 
     let notice = root.join("NORTHSTAR_TERRACOTTA_NOTICE.txt");
     let _ = fs::write(
@@ -773,6 +906,7 @@ pub fn adopt_existing(app: Option<&AppHandle>) {
 pub fn terracotta_start(app: Option<&AppHandle>) -> Result<TerracottaInfo, String> {
     let classifier = platform_classifier()
         .ok_or_else(|| "Terracotta is not supported on this OS/CPU yet".to_string())?;
+    ensure_macos_helper_ready()?;
     let root = terracotta_root()?;
     let binary = find_binary(&root, classifier).ok_or_else(|| {
         "Terracotta is not installed. Click Install to download the official unmodified package."
@@ -1081,6 +1215,7 @@ fn is_valid_room_code(code: &str) -> bool {
 
 /// Host: start LAN scan / create room.
 pub fn terracotta_host() -> Result<TerracottaState, String> {
+    ensure_macos_helper_ready()?;
     let port = require_port()?;
     ensure_waiting(port)?;
     let path = append_nodes_query("/state/scanning");

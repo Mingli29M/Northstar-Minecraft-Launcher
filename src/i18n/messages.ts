@@ -472,6 +472,8 @@ const en = {
   terracottaInstall: "Install Terracotta",
   terracottaInstalling: "Installing…",
   terracottaInstallOk: "Terracotta package installed",
+  terracottaInstallMacHint:
+    "On macOS, Install asks for your password to register Terracotta’s system helper (required to detect LAN worlds).",
   terracottaReinstall: "Reinstall",
   terracottaStart: "Start sidecar",
   terracottaStop: "Stop sidecar",
@@ -504,6 +506,8 @@ const en = {
   terracottaPhaseUnknown: "Unknown",
   terracottaHostNoWorld:
     "Open a world in Minecraft and turn on Open to LAN, then create the room.",
+  terracottaHostNoWorldMac:
+    "Open a world and turn on Open to LAN. If it still isn’t found, allow Terracotta under System Settings → Privacy & Security → Local Network.",
   terracottaJoinInMinecraft: "Add this address in Minecraft → Multiplayer to join.",
   exitGuardTitle: "Something is still running",
   exitGuardBody: "Closing Northstar now would shut these down:",
@@ -975,6 +979,8 @@ const zh: Record<MessageKey, string> = {
   terracottaInstall: "安装 Terracotta",
   terracottaInstalling: "安装中…",
   terracottaInstallOk: "Terracotta 包已安装",
+  terracottaInstallMacHint:
+    "在 macOS 上，安装会请求管理员密码以注册 Terracotta 系统助手（用于检测局域网世界）。",
   terracottaReinstall: "重新安装",
   terracottaStart: "启动侧车",
   terracottaStop: "停止侧车",
@@ -1006,6 +1012,8 @@ const zh: Record<MessageKey, string> = {
   terracottaPhaseError: "意外停止",
   terracottaPhaseUnknown: "未知",
   terracottaHostNoWorld: "请在 Minecraft 中进入世界并开启「对局域网开放」，然后再创建房间。",
+  terracottaHostNoWorldMac:
+    "请进入世界并开启「对局域网开放」。若仍检测不到，请在「系统设置 → 隐私与安全性 → 本地网络」中允许 Terracotta。",
   terracottaJoinInMinecraft: "在 Minecraft →「多人游戏」中添加此地址即可加入。",
   exitGuardTitle: "仍有任务在运行",
   exitGuardBody: "现在关闭 Northstar 将会停止以下内容：",
@@ -1490,6 +1498,8 @@ const de: Record<MessageKey, string> = {
   terracottaInstall: "Terracotta installieren",
   terracottaInstalling: "Installiere…",
   terracottaInstallOk: "Terracotta-Paket installiert",
+  terracottaInstallMacHint:
+    "Unter macOS fragt die Installation nach dem Passwort, um Terracottas Systemhelfer zu registrieren (nötig für die LAN-Erkennung).",
   terracottaReinstall: "Neu installieren",
   terracottaStart: "Sidecar starten",
   terracottaStop: "Sidecar stoppen",
@@ -1522,6 +1532,8 @@ const de: Record<MessageKey, string> = {
   terracottaPhaseUnknown: "Unbekannt",
   terracottaHostNoWorld:
     "Öffne eine Welt in Minecraft und aktiviere „Im LAN öffnen“, dann den Raum erstellen.",
+  terracottaHostNoWorldMac:
+    "Welt öffnen und „Im LAN öffnen“ aktivieren. Wenn sie nicht gefunden wird: Terracotta unter Systemeinstellungen → Datenschutz & Sicherheit → Lokales Netzwerk erlauben.",
   terracottaJoinInMinecraft:
     "Diese Adresse in Minecraft → Mehrspieler hinzufügen, um beizutreten.",
   exitGuardTitle: "Es läuft noch etwas",

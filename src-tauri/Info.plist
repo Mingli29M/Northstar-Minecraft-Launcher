@@ -7,6 +7,6 @@
 	<key>NSCameraUsageDescription</key>
 	<string>A Minecraft mod wants to access your camera.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Minecraft uses the local network to find and connect to LAN servers.</string>
+	<string>Northstar and Minecraft use the local network to find LAN worlds and multiplayer sessions (including Terracotta).</string>
 </dict>
 </plist>

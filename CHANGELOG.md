@@ -8,6 +8,8 @@ Launcher release notes for the desktop app (Tauri). Website marketing changes li
 
 ### macOS
 - **Microphone (and camera) permission** — `Info.plist` usage descriptions plus hardened-runtime audio-input/camera entitlements so mods like Simple Voice Chat can prompt for the mic when launched from Northstar
+- **Terracotta LAN detection** — Install now runs the official Terracotta `.pkg` (admin password prompt) to register `/Applications/terracotta.app` + its LaunchAgent, matching HMCL; without that helper, host-scanning never sees Open-to-LAN worlds
+- Local Network usage description updated so Minecraft/Terracotta LAN traffic can prompt under Privacy & Security
 
 ## 1.3.0 — 2026-08-07
 
