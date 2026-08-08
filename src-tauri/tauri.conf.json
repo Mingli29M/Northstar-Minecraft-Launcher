@@ -50,7 +50,8 @@
     ],
     "macOS": {
       "signingIdentity": "-",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "entitlements": "Entitlements.plist"
     }
   },
   "plugins": {}
