@@ -232,6 +232,8 @@ export interface ExitBlockers {
 export interface TerracottaInfo {
   version: string;
   installed: boolean;
+  /** macOS: `/Applications/terracotta.app` helper present. Always true elsewhere. */
+  macosHelperInstalled: boolean;
   running: boolean;
   port: number | null;
   binaryPath: string | null;

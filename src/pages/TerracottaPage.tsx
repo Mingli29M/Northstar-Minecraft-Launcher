@@ -90,6 +90,8 @@ export function TerracottaPage() {
   const roomCode = state?.room ?? null;
   const joinUrl = state?.url ?? null;
   const scanning = phase === "host-scanning";
+  const isMacos = (info?.platformClassifier ?? "").startsWith("macos");
+  const hostScanHint = isMacos ? t("terracottaHostNoWorldMac") : t("terracottaHostNoWorld");
 
   return (
     <VStack gap={4} className="euml-page" style={{ maxWidth: 720 }}>
@@ -216,6 +218,11 @@ export function TerracottaPage() {
                   )}
                 </HStack>
               </HStack>
+              {isMacos && !info.installed && (
+                <Text color="secondary" type="supporting">
+                  {t("terracottaInstallMacHint")}
+                </Text>
+              )}
               <Text color="secondary" type="supporting">
                 {t("terracottaPhase")}: {phaseLabel}
                 {state?.difficulty ? ` · ${state.difficulty}` : ""}
@@ -242,7 +249,7 @@ export function TerracottaPage() {
               />
               {scanning && !roomCode && (
                 <Text color="secondary" type="supporting">
-                  {t("terracottaHostNoWorld")}
+                  {hostScanHint}
                 </Text>
               )}
               {roomCode && (
